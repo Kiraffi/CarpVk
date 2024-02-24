@@ -1,18 +1,26 @@
 #include "carpvk.h"
-
 #include <stdio.h>
 #include <string.h>
-//#include <vulkan/vulkan_core.h>
 
 #include <volk.h>
+//#include <vulkan/vulkan_core.h>
+
+//#include <volk.h>
+
+#include "common.h"
 
 
+uint32_t sApplicationVersion = VK_API_VERSION_1_3;
 
 struct VulkanInstanceBuilderImpl
 {
     VkApplicationInfo m_appInfo = {
         .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+        .pApplicationName = "Test app",
         .applicationVersion = VK_MAKE_VERSION(0, 0, 1),
+        .pEngineName = "carp engine",
+        .engineVersion = VK_MAKE_VERSION(0, 0, 1),
+        .apiVersion = sApplicationVersion,
     } ;
 
     VkInstanceCreateInfo m_createInfo = {
@@ -24,30 +32,15 @@ struct VulkanInstanceBuilderImpl
         .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
     };
 
+    VkValidationFeaturesEXT m_validationFeatures = {
+        .sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT,
+    };
 };
 static_assert(sizeof(VulkanInstanceBuilder) >= sizeof(VulkanInstanceBuilderImpl));
 static_assert(alignof(VulkanInstanceBuilder) == alignof(VulkanInstanceBuilderImpl));
 
 
 
-
-
-
-#ifndef ARRAYSIZES
-#define ARRAYSIZES(theArray) (theArray ? (sizeof(theArray) / sizeof(theArray[0])) : 0)
-#endif
-
-#if _MSC_VER
-#define DEBUG_BREAK_MACRO() __debugbreak()
-#else
-#include <signal.h>
-#define DEBUG_BREAK_MACRO() raise(SIGTRAP)
-#endif
-
-#define ASSERT_STRING(STUFF, STUFFSTRING) \
-do { if (STUFF) {} else printf("Assertion: %s\n", STUFFSTRING); } while (0)
-
-#define ASSERT(STUFF) ASSERT_STRING(STUFF, #STUFF)
 
 
 #define VK_CHECK_CALL(call) do { \
@@ -62,7 +55,7 @@ static const VkValidationFeatureEnableEXT sEnabledValidationFeatures[] =
 {
     //VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT,
     //VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT,
-    //VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT,
+    VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT,
     //VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT,
     VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT,
 };
@@ -93,8 +86,12 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL sDebugReportCB(
     bool warningMsg = (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0
                       || (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) != 0;
 
+    // Remove infos
+    if(!errorMsg && !warningMsg)
+    {
+        return VK_FALSE;
+    }
     const char *type = errorMsg ? "Error" : (warningMsg  ? "Warning" : "Info");
-
     printf("Type:%s, message: %s\n\n", type, pCallbackData->pMessage);
     if(errorMsg)
     {
@@ -104,11 +101,64 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL sDebugReportCB(
 }
 
 
+
+
+bool initVolk()
+{
+    VkResult r;
+    uint32_t version;
+
+    r = volkInitialize();
+    if (r != VK_SUCCESS)
+    {
+        printf("volkInitialize failed!\n");
+        return false;
+    }
+
+    version = volkGetInstanceVersion();
+    printf("Vulkan version %d.%d.%d initialized.\n",
+        VK_VERSION_MAJOR(version),
+        VK_VERSION_MINOR(version),
+        VK_VERSION_PATCH(version));
+
+    return true;
+}
+
+void printExtensions()
+{
+    VkExtensionProperties allExtensions[256] = {};
+    uint32_t extensionCount = 0;
+    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
+    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, allExtensions);
+
+    for(int i = 0; i < extensionCount; ++i)
+    {
+        printf("Extenstion: %s\n", allExtensions[i].extensionName);
+    }
+    printf("Extensions: %i\n", extensionCount);
+}
+
+void printLayers()
+{
+    VkLayerProperties allLayers[256] = {};
+    uint32_t layerCount = 0;
+    vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+    vkEnumerateInstanceLayerProperties(&layerCount, allLayers);
+    for(int i = 0; i < layerCount; ++i)
+    {
+        printf("Layer: %s\n", allLayers[i].layerName);
+    }
+    printf("Layers: %i\n", layerCount);
+}
+
+
+
+
 VulkanInstanceBuilder instaceBuilder()
 {
-    VulkanInstanceBuilderImpl result;
+    VulkanInstanceBuilderImpl newBuilder;
     VulkanInstanceBuilder builder = {};
-    memcpy(&builder, &result, sizeof(result));
+    memcpy(&builder, &newBuilder, sizeof(VulkanInstanceBuilderImpl));
     return builder;
 }
 
@@ -122,7 +172,7 @@ VulkanInstanceBuilder& instanceBuilderSetApplicationVersion(
     VulkanInstanceBuilder &builder, int major, int minor, int patch)
 {
     VulkanInstanceBuilderImpl *casted =  sGetBuilderCasted(builder);
-    casted->m_appInfo.apiVersion = VK_MAKE_VERSION(major, minor, patch);
+    casted->m_appInfo.applicationVersion = VK_MAKE_VERSION(major, minor, patch);
     return builder;
 }
 
@@ -153,11 +203,9 @@ VulkanInstanceBuilder& instanceBuilderUseDefaultValidationLayers(VulkanInstanceB
     casted->m_debugCreateInfo.pfnUserCallback = sDebugReportCB;
 
 
-    VkValidationFeaturesEXT validationFeatures = { VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT };
-    validationFeatures.enabledValidationFeatureCount = ARRAYSIZES(sEnabledValidationFeatures);
-    validationFeatures.pEnabledValidationFeatures = sEnabledValidationFeatures;
-
-    casted->m_debugCreateInfo.pNext = &validationFeatures;
+    casted->m_validationFeatures.enabledValidationFeatureCount = ARRAYSIZES(sEnabledValidationFeatures);
+    casted->m_validationFeatures.pEnabledValidationFeatures = sEnabledValidationFeatures;
+    casted->m_debugCreateInfo.pNext = &casted->m_validationFeatures;
 
     casted->m_createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*) &casted->m_debugCreateInfo;
 
@@ -166,108 +214,56 @@ VulkanInstanceBuilder& instanceBuilderUseDefaultValidationLayers(VulkanInstanceB
 
 }
 
-VulkanInstanceBuilder& instanceBuilderSetDefaultMessageSeverity(VulkanInstanceBuilder &builder)
+VkInstance sCreateInstance(VulkanInstanceBuilder &builder)
 {
-    VulkanInstanceBuilderImpl *casted =  sGetBuilderCasted(builder);
-
-}
-
-VkInstance_T* instanceBuilderFinish(VulkanInstanceBuilder &builder)
-{
-    VkResult r;
-    uint32_t version;
-    void* ptr = nullptr;
-
-    /* This won't compile if the appropriate Vulkan platform define isn't set. */
-#if 0
-    ptr =
-#if defined(_WIN32)
-        &vkCreateWin32SurfaceKHR;
-#elif defined(__linux__) || defined(__unix__)
-        &vkCreateXlibSurfaceKHR;
-#elif defined(__APPLE__)
-    &vkCreateMacOSSurfaceMVK;
-#else
-    /* Platform not recogized for testing. */
-    NULL;
-#endif
-#endif
-    /* Try to initialize volk. This might not work on CI builds, but the
-     * above should have compiled at least. */
-    r = volkInitialize();
-    if (r != VK_SUCCESS) {
-        printf("volkInitialize failed!\n");
-        return nullptr;
-    }
-
-    version = volkGetInstanceVersion();
-    printf("Vulkan version %d.%d.%d initialized.\n",
-        VK_VERSION_MAJOR(version),
-        VK_VERSION_MINOR(version),
-        VK_VERSION_PATCH(version));
-
-
-
-
     VkInstance result = {};
     VulkanInstanceBuilderImpl *casted =  sGetBuilderCasted(builder);
+    casted->m_createInfo.pApplicationInfo = &casted->m_appInfo;
     VK_CHECK_CALL(vkCreateInstance(&casted->m_createInfo, nullptr, &result));
-
     return result;
 }
 
+static VkDebugUtilsMessengerEXT sRegisterDebugCB(VkInstance vkInstance)
+{
+    VkDebugUtilsMessengerCreateInfoEXT createInfo =
+        { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
+    createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT
+                                 | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
+                                 | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
+                             | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
+                             | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    createInfo.pfnUserCallback = sDebugReportCB;
 
-/*
- *     VkInstanceCreateInfo createInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
-    createInfo.pApplicationInfo = &appInfo;
+    VkDebugUtilsMessengerEXT debugMessenger = nullptr;
 
-    PodVector<const char*> extensions = sGetRequiredInstanceExtensions();
+    auto func = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(
+        vkInstance, "vkCreateDebugUtilsMessengerEXT");
+    ASSERT(func);
 
-    createInfo.ppEnabledExtensionNames = extensions.data();
-    createInfo.enabledExtensionCount = (u32)extensions.size();
-
-    for(auto ext : extensions)
-    {
-        printf("instance ext: %s\n", ext);
-    }
-
-    VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
-#if NDEBUG
-#else
-    auto &initParams = VulkanInitializationParameters::get();
-
-    if (initParams.useValidationLayers)
-    {
-        createInfo.ppEnabledLayerNames = sValidationLayers;
-        createInfo.enabledLayerCount = ARRAYSIZES(sValidationLayers);
-
-        debugCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT
-                | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
-                | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-        debugCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
-                | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
-                | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-        debugCreateInfo.pfnUserCallback = sDebugReportCB;
-
-
-        VkValidationFeaturesEXT validationFeatures = { VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT };
-        validationFeatures.enabledValidationFeatureCount = ARRAYSIZES(sEnabledValidationFeatures);
-        validationFeatures.pEnabledValidationFeatures = sEnabledValidationFeatures;
-
-        debugCreateInfo.pNext = &validationFeatures;
-
-        createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*) &debugCreateInfo;
-    }
-    else
-#endif
-    {
-        createInfo.enabledLayerCount = 0;
-        createInfo.pNext = nullptr;
-    }
-
-    VK_CHECK_CALL(vkCreateInstance(&createInfo, nullptr, &vulk->instance));
-
-    return vulk->instance != VK_NULL_HANDLE;
+    VK_CHECK_CALL(func(vkInstance, &createInfo, nullptr, &debugMessenger));
+    return debugMessenger;
 }
 
- */
+
+bool instanceBuilderFinish(VulkanInstanceBuilder &builder, CarpVk& carpVk)
+{
+    VkInstance result = sCreateInstance(builder);
+    if(result == nullptr)
+    {
+        return false;
+    }
+    carpVk.instance = result;
+    VulkanInstanceBuilderImpl *casted =  sGetBuilderCasted(builder);
+    if(casted->m_createInfo.enabledLayerCount > 0)
+    {
+        VkDebugUtilsMessengerEXT debugMessenger = sRegisterDebugCB(result);
+        if (debugMessenger == nullptr)
+        {
+            return false;
+        }
+        carpVk.debugMessenger = debugMessenger;
+    }
+    return true;
+}
+

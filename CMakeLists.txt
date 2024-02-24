@@ -2,7 +2,8 @@ cmake_minimum_required(VERSION 3.27)
 project(carpvk)
 
 set(CMAKE_CXX_STANDARD 17)
-
+#SET(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -m64")
+#ADD_DEFINITIONS(-DCMAKE_GENERATOR_PLATFORM=x64)
 
 if (DEFINED VULKAN_SDK_PATH)
     set(Vulkan_INCLUDE_DIRS "${VULKAN_SDK_PATH}/Include")
@@ -29,4 +30,5 @@ add_executable(carpvk src/main.cpp src/carpvk.cpp)
 
 target_link_libraries(carpvk PRIVATE
         volk
+        #vulkan
 )

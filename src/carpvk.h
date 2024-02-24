@@ -1,3 +1,4 @@
+#pragma once
 
 struct VulkanInstanceBuilder;
 struct alignas(8) VulkanInstanceBuilder
@@ -6,6 +7,21 @@ struct alignas(8) VulkanInstanceBuilder
 };
 
 struct VkInstance_T;
+struct VkDevice_T;
+struct VkDebugUtilsMessengerEXT_T;
+
+struct CarpVk
+{
+    VkInstance_T* instance = nullptr;
+    VkDevice_T* device = nullptr;
+    VkDebugUtilsMessengerEXT_T* debugMessenger = nullptr;
+};
+
+
+
+bool initVolk();
+void printExtensions();
+void printLayers();
 
 VulkanInstanceBuilder instaceBuilder();
 
@@ -19,4 +35,4 @@ VulkanInstanceBuilder& instanceBuilderUseDefaultValidationLayers(VulkanInstanceB
 VulkanInstanceBuilder& instanceBuilderSetDefaultMessageSeverity(VulkanInstanceBuilder &builder);
 
 
-VkInstance_T* instanceBuilderFinish(VulkanInstanceBuilder &builder);
+bool instanceBuilderFinish(VulkanInstanceBuilder &builder, CarpVk& carpVk);
