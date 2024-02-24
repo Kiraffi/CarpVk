@@ -15,3 +15,6 @@
 do { if (STUFF) {} else printf("Assertion: %s\n", STUFFSTRING); } while (0)
 
 #define ASSERT(STUFF) ASSERT_STRING(STUFF, #STUFF)
+
+
+using u32 = uint32_t;

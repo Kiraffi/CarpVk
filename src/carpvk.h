@@ -10,13 +10,17 @@ struct VkInstance_T;
 struct VkDevice_T;
 struct VkDebugUtilsMessengerEXT_T;
 struct VkSurfaceKHR_T;
+struct VkPhysicalDevice_T;
 
 struct CarpVk
 {
     VkInstance_T* instance = nullptr;
+    VkPhysicalDevice_T* physicalDevice = nullptr;
     VkDevice_T* device = nullptr;
     VkDebugUtilsMessengerEXT_T* debugMessenger = nullptr;
     VkSurfaceKHR_T* surface = nullptr;
+
+    int queueIndex = -1;
 };
 
 
@@ -40,3 +44,6 @@ VulkanInstanceBuilder& instanceBuilderSetDefaultMessageSeverity(VulkanInstanceBu
 
 
 bool instanceBuilderFinish(VulkanInstanceBuilder &builder, CarpVk& carpVk);
+
+
+bool createPhysicalDevice(CarpVk& carpVk, bool useIntegratedGpu);

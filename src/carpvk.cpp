@@ -1,6 +1,7 @@
 #include "carpvk.h"
 #include <stdio.h>
 #include <string.h>
+#include <vector>
 
 #include <volk.h>
 //#include <vulkan/vulkan_core.h>
@@ -10,7 +11,7 @@
 #include "common.h"
 
 
-uint32_t sApplicationVersion = VK_API_VERSION_1_3;
+uint32_t sVulkanApiVersion = VK_API_VERSION_1_3;
 
 struct VulkanInstanceBuilderImpl
 {
@@ -20,7 +21,7 @@ struct VulkanInstanceBuilderImpl
         .applicationVersion = VK_MAKE_VERSION(0, 0, 1),
         .pEngineName = "carp engine",
         .engineVersion = VK_MAKE_VERSION(0, 0, 1),
-        .apiVersion = sApplicationVersion,
+        .apiVersion = sVulkanApiVersion,
     } ;
 
     VkInstanceCreateInfo m_createInfo = {
@@ -36,10 +37,46 @@ struct VulkanInstanceBuilderImpl
         .sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT,
     };
 };
+
 static_assert(sizeof(VulkanInstanceBuilder) >= sizeof(VulkanInstanceBuilderImpl));
 static_assert(alignof(VulkanInstanceBuilder) == alignof(VulkanInstanceBuilderImpl));
 
+struct SwapChainSupportDetails
+{
+    VkSurfaceCapabilitiesKHR capabilities = {};
+    VkSurfaceFormatKHR formats[256];
+    VkPresentModeKHR presentModes[256];
+    uint32_t formatCount = 0;
+    uint32_t presentModeCount = 0;
+};
 
+
+struct SwapChainFormats
+{
+    VkFormat color;
+    VkFormat depth;
+    VkColorSpaceKHR colorSpace;
+};
+
+static constexpr u32 sFormatFlagBits =
+    VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
+    VK_FORMAT_FEATURE_BLIT_SRC_BIT |
+    VK_FORMAT_FEATURE_BLIT_DST_BIT |
+    VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
+    VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
+    VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT |
+    VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+
+static constexpr SwapChainFormats sDefaultPresent[] = {
+    { VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_D32_SFLOAT, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
+    { VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_D32_SFLOAT, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
+    { VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_FORMAT_D32_SFLOAT, VK_COLOR_SPACE_HDR10_ST2084_EXT },
+};
+
+static constexpr SwapChainFormats sDefaultFormats[] = {
+    { VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_D32_SFLOAT, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
+    { VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_D32_SFLOAT, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
+};
 
 
 
@@ -59,6 +96,15 @@ static const VkValidationFeatureEnableEXT sEnabledValidationFeatures[] =
     //VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT,
     VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT,
 };
+
+static const char* sDeviceExtensions[] =
+{
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+    // VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
+    // VK_KHR_MAINTENANCE1_EXTENSION_NAME
+    // VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME
+};
+
 
 static const char* sDefaultValidationLayers[] =
 {
@@ -98,6 +144,59 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL sDebugReportCB(
         ASSERT(!"Validation error encountered!");
     }
     return VK_FALSE;
+}
+
+
+
+static SwapChainSupportDetails sQuerySwapChainSupport(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
+{
+    SwapChainSupportDetails details;
+
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &details.capabilities);
+
+    u32 formatCount;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr);
+    ASSERT(formatCount > 0 && formatCount < 256);
+    details.formatCount = formatCount;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, details.formats);
+
+    u32 presentModeCount;
+    vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, nullptr);
+    ASSERT(presentModeCount > 0 && presentModeCount < 256);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, details.presentModes);
+    details.presentModeCount = presentModeCount;
+
+    return details;
+}
+
+// Returns index that has all bits and supports present.
+static int sFindQueueFamilies(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
+{
+    u32 queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, nullptr);
+    ASSERT(queueFamilyCount < 256);
+    VkQueueFamilyProperties queueFamilies[256];
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies);
+
+    int index = -1;
+    for (int i = 0; i < queueFamilyCount; ++i)
+    {
+        ++i;
+        u32 queueBits = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_TRANSFER_BIT | VK_QUEUE_COMPUTE_BIT;
+
+        // make everything into same queue
+        if ((queueFamilies[i].queueFlags & queueBits) != queueBits)
+            continue;
+
+        VkBool32 presentSupport = false;
+        vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, surface, &presentSupport);
+
+        if (!presentSupport)
+            continue;
+
+        return i;
+    }
+    return -1;
 }
 
 
@@ -296,3 +395,168 @@ bool instanceBuilderFinish(VulkanInstanceBuilder &builder, CarpVk& carpVk)
     return true;
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+bool createPhysicalDevice(CarpVk& carpVk, bool useIntegratedGpu)
+{
+    VkPhysicalDeviceType wantedDeviceType = useIntegratedGpu
+        ? VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
+        : VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+
+    VkPhysicalDevice devices[256] = {};
+    u32 count = ARRAYSIZES(devices);
+
+    VK_CHECK_CALL(vkEnumeratePhysicalDevices(carpVk.instance, &count, nullptr));
+    ASSERT(count > 256);
+    VK_CHECK_CALL(vkEnumeratePhysicalDevices(carpVk.instance, &count, devices));
+
+    VkPhysicalDevice primary = nullptr;
+    VkPhysicalDevice secondary = nullptr;
+
+    int primaryQueueIndex = -1;
+    int secondaryQueueIndex = -1;
+
+    int requiredExtensionCount = ARRAYSIZES(sDeviceExtensions);
+
+    for(u32 i = 0; i < count; ++i)
+    {
+        VkPhysicalDeviceProperties prop;
+        VkPhysicalDevice physicalDevice = devices[i];
+        vkGetPhysicalDeviceProperties(physicalDevice, &prop);
+        if(prop.apiVersion < sVulkanApiVersion)
+        {
+            printf("Api of device is older than required for %s\n", prop.deviceName);
+            continue;
+        }
+        int queueIndex = sFindQueueFamilies(physicalDevice, carpVk.surface);
+        if(queueIndex == -1)
+        {
+            printf("No required queue indices found or they are not all possible to be in same queue: %s\n",
+                prop.deviceName);
+            continue;
+        }
+
+        if(!prop.limits.timestampComputeAndGraphics)
+        {
+            printf("No timestamp and queries for %s\n", prop.deviceName);
+            continue;
+        }
+        SwapChainSupportDetails swapChainSupport = sQuerySwapChainSupport(physicalDevice, carpVk.surface);
+        bool swapChainAdequate = swapChainSupport.formatCount > 0 && swapChainSupport.presentModeCount > 0;
+        if(!swapChainAdequate)
+        {
+            printf("No swapchain for: %s\n", prop.deviceName);
+            continue;
+        }
+        u32 formatIndex = ~0u;
+
+        for (u32 j = 0; j < ARRAYSIZES(sDefaultFormats); ++j)
+        {
+            VkFormatProperties formatProperties;
+            vkGetPhysicalDeviceFormatProperties(physicalDevice, sDefaultFormats[j].color, &formatProperties);
+            if(((formatProperties.optimalTilingFeatures) & sFormatFlagBits) == sFormatFlagBits)
+            {
+                formatIndex = j;
+                break;
+            }
+        }
+
+        if(formatIndex == ~0u)
+        {
+            printf("No render target format found: %s\n", prop.deviceName);
+            continue;
+        }
+        ASSERT(formatIndex != ~0u);
+
+
+        {
+            u32 extensionCount;
+            vkEnumerateDeviceExtensionProperties(
+                physicalDevice,
+                nullptr,
+                &extensionCount,
+                nullptr);
+
+            VkExtensionProperties availableExtensions[256] = {};
+            ASSERT(extensionCount > 256);
+
+            vkEnumerateDeviceExtensionProperties(
+                physicalDevice,
+                nullptr,
+                &extensionCount,
+                availableExtensions);
+
+            for (const char* requiredExtension : sDeviceExtensions)
+            {
+                for (const auto &extension: availableExtensions)
+                {
+                    if(strcmp(extension.extensionName, requiredExtension) == 0)
+                    {
+                        requiredExtensionCount--;
+                        break;
+                    }
+                }
+            }
+        }
+        if(requiredExtensionCount != 0)
+        {
+            printf("No required extension support found for: %s\n", prop.deviceName);
+            continue;
+        }
+        if(prop.deviceType == wantedDeviceType)
+        {
+            primary = secondary = devices[i];
+            primaryQueueIndex = queueIndex;
+            break;
+        }
+        else if(!secondary &&
+                (prop.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ||
+                 prop.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU))
+        {
+            secondary = devices[i];
+            secondaryQueueIndex = queueIndex;
+        }
+    }
+    if(!primary && !secondary)
+    {
+        printf("Didn't find any gpus\n");
+        return false;
+    }
+    if(primary)
+    {
+        carpVk.physicalDevice = primary;
+        carpVk.queueIndex = primaryQueueIndex;
+    }
+    else
+    {
+        carpVk.physicalDevice = secondary;
+        carpVk.queueIndex = secondaryQueueIndex;
+    }
+
+    VkPhysicalDeviceProperties prop;
+    vkGetPhysicalDeviceProperties(carpVk.physicalDevice, &prop);
+
+    const char *typeText = prop.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? "discrete" : "integrated";
+    printf("Picking %s device: %s\n", typeText, prop.deviceName);
+    return true;
+}
