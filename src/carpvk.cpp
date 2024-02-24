@@ -124,6 +124,34 @@ bool initVolk()
     return true;
 }
 
+void deinitCarpVk(CarpVk& carpVk)
+{
+    if (carpVk.instance == nullptr)
+    {
+        return;
+    }
+
+
+    if (carpVk.surface)
+    {
+        vkDestroySurfaceKHR(carpVk.instance, carpVk.surface, nullptr);
+        carpVk.surface = nullptr;
+    }
+    if(carpVk.debugMessenger)
+    {
+        auto dest = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(carpVk.instance, "vkDestroyDebugUtilsMessengerEXT");
+        dest(carpVk.instance, carpVk.debugMessenger, nullptr);
+        carpVk.debugMessenger = nullptr;
+    }
+
+    if (carpVk.device)
+    {
+        vkDestroyDevice(carpVk.device, nullptr);
+        carpVk.device = nullptr;
+    }
+    vkDestroyInstance(carpVk.instance, nullptr);
+}
+
 void printExtensions()
 {
     VkExtensionProperties allExtensions[256] = {};
@@ -264,6 +292,7 @@ bool instanceBuilderFinish(VulkanInstanceBuilder &builder, CarpVk& carpVk)
         }
         carpVk.debugMessenger = debugMessenger;
     }
+
     return true;
 }
 

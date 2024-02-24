@@ -9,17 +9,21 @@ struct alignas(8) VulkanInstanceBuilder
 struct VkInstance_T;
 struct VkDevice_T;
 struct VkDebugUtilsMessengerEXT_T;
+struct VkSurfaceKHR_T;
 
 struct CarpVk
 {
     VkInstance_T* instance = nullptr;
     VkDevice_T* device = nullptr;
     VkDebugUtilsMessengerEXT_T* debugMessenger = nullptr;
+    VkSurfaceKHR_T* surface = nullptr;
 };
 
 
 
 bool initVolk();
+void deinitCarpVk(CarpVk& carpvk);
+
 void printExtensions();
 void printLayers();
 
