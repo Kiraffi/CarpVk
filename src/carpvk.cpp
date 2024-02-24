@@ -1,15 +1,10 @@
 #include "carpvk.h"
 #include <stdio.h>
 #include <string.h>
-#include <vector>
 
-//#include <volk.h>
 #include <vulkan/vulkan_core.h>
 
-//#include <volk.h>
-
 #include "common.h"
-
 
 uint32_t sVulkanApiVersion = VK_API_VERSION_1_3;
 
@@ -181,7 +176,6 @@ static int sFindQueueFamilies(VkPhysicalDevice physicalDevice, VkSurfaceKHR surf
     int index = -1;
     for (int i = 0; i < queueFamilyCount; ++i)
     {
-        ++i;
         u32 queueBits = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_TRANSFER_BIT | VK_QUEUE_COMPUTE_BIT;
 
         // make everything into same queue
@@ -199,29 +193,6 @@ static int sFindQueueFamilies(VkPhysicalDevice physicalDevice, VkSurfaceKHR surf
     return -1;
 }
 
-
-
-
-bool initVolk()
-{
-    VkResult r;
-    uint32_t version;
-#if 0
-    r = volkInitialize();
-    if (r != VK_SUCCESS)
-    {
-        printf("volkInitialize failed!\n");
-        return false;
-    }
-
-    version = volkGetInstanceVersion();
-    printf("Vulkan version %d.%d.%d initialized.\n",
-        VK_VERSION_MAJOR(version),
-        VK_VERSION_MINOR(version),
-        VK_VERSION_PATCH(version));
-#endif
-    return true;
-}
 
 void deinitCarpVk(CarpVk& carpVk)
 {
@@ -256,6 +227,7 @@ void printExtensions()
     VkExtensionProperties allExtensions[256] = {};
     uint32_t extensionCount = 0;
     vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
+    ASSERT(extensionCount < 256);
     vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, allExtensions);
 
     for(int i = 0; i < extensionCount; ++i)
@@ -270,6 +242,7 @@ void printLayers()
     VkLayerProperties allLayers[256] = {};
     uint32_t layerCount = 0;
     vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+    ASSERT(layerCount < 256);
     vkEnumerateInstanceLayerProperties(&layerCount, allLayers);
     for(int i = 0; i < layerCount; ++i)
     {
@@ -426,8 +399,8 @@ bool createPhysicalDevice(CarpVk& carpVk, bool useIntegratedGpu)
     VkPhysicalDevice devices[256] = {};
     u32 count = 0;
 
-    VK_CHECK_CALL(vkEnumeratePhysicalDevices(carpVk.instance, &count, devices));
-    ASSERT(count > 256);
+    VK_CHECK_CALL(vkEnumeratePhysicalDevices(carpVk.instance, &count, nullptr));
+    ASSERT(count < 256);
     VK_CHECK_CALL(vkEnumeratePhysicalDevices(carpVk.instance, &count, devices));
 
     VkPhysicalDevice primary = nullptr;
@@ -436,10 +409,11 @@ bool createPhysicalDevice(CarpVk& carpVk, bool useIntegratedGpu)
     int primaryQueueIndex = -1;
     int secondaryQueueIndex = -1;
 
-    int requiredExtensionCount = ARRAYSIZES(sDeviceExtensions);
 
     for(u32 i = 0; i < count; ++i)
     {
+        int requiredExtensionCount = ARRAYSIZES(sDeviceExtensions);
+
         VkPhysicalDeviceProperties prop;
         VkPhysicalDevice physicalDevice = devices[i];
         vkGetPhysicalDeviceProperties(physicalDevice, &prop);
@@ -498,7 +472,7 @@ bool createPhysicalDevice(CarpVk& carpVk, bool useIntegratedGpu)
                 nullptr);
 
             VkExtensionProperties availableExtensions[256] = {};
-            ASSERT(extensionCount > 256);
+            ASSERT(extensionCount < 256);
 
             vkEnumerateDeviceExtensionProperties(
                 physicalDevice,
@@ -558,5 +532,129 @@ bool createPhysicalDevice(CarpVk& carpVk, bool useIntegratedGpu)
 
     const char *typeText = prop.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? "discrete" : "integrated";
     printf("Picking %s device: %s\n", typeText, prop.deviceName);
+    return true;
+}
+
+
+bool createDeviceWithQueues(CarpVk& carpVk, VulkanInstanceBuilder& builder)
+{
+    SwapChainSupportDetails swapChainSupport = sQuerySwapChainSupport(carpVk.physicalDevice, carpVk.surface);
+    bool swapChainAdequate = swapChainSupport.formatCount > 0 && swapChainSupport.presentModeCount > 0;
+    if(!swapChainAdequate)
+        return false;
+
+    carpVk.swapchainFormats.presentColorFormat = VK_FORMAT_UNDEFINED;
+    carpVk.swapchainFormats.depthFormat = sDefaultPresent[0].depth;
+    carpVk.swapchainFormats.colorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
+    carpVk.swapchainFormats.defaultColorFormat = VK_FORMAT_UNDEFINED;
+
+    for(u32 i = 0; i < swapChainSupport.formatCount
+    && carpVk.swapchainFormats.presentColorFormat == VK_FORMAT_UNDEFINED; ++i)
+    {
+        for (const auto& format : sDefaultPresent)
+        {
+            if(swapChainSupport.formats[i].colorSpace != format.colorSpace)
+                continue;
+            if(swapChainSupport.formats[i].format != format.color)
+                continue;
+            carpVk.swapchainFormats.presentColorFormat = format.color;
+            carpVk.swapchainFormats.depthFormat = format.depth;
+            carpVk.swapchainFormats.colorSpace = format.colorSpace;
+        }
+    }
+
+    if(carpVk.swapchainFormats.presentColorFormat == VK_FORMAT_UNDEFINED
+       && swapChainSupport.formatCount == 1
+       && swapChainSupport.formats[0].format == VK_FORMAT_UNDEFINED)
+    {
+        carpVk.swapchainFormats.presentColorFormat = sDefaultPresent[0].color;
+        carpVk.swapchainFormats.colorSpace = sDefaultPresent[0].colorSpace;
+        carpVk.swapchainFormats.depthFormat = sDefaultPresent[0].depth;
+    }
+    ASSERT(carpVk.swapchainFormats.presentColorFormat != VK_FORMAT_UNDEFINED);
+    if(carpVk.swapchainFormats.presentColorFormat == VK_FORMAT_UNDEFINED)
+    {
+        return false;
+    }
+    for (const auto &format : sDefaultFormats)
+    {
+        VkFormatProperties formatProperties;
+        vkGetPhysicalDeviceFormatProperties(carpVk.physicalDevice, format.color, &formatProperties);
+        if (((formatProperties.optimalTilingFeatures) & sFormatFlagBits) == sFormatFlagBits)
+        {
+            carpVk.swapchainFormats.defaultColorFormat = format.color;
+            break;
+        }
+    }
+
+    ASSERT(carpVk.swapchainFormats.defaultColorFormat != VK_FORMAT_UNDEFINED);
+    if(carpVk.swapchainFormats.defaultColorFormat == VK_FORMAT_UNDEFINED)
+    {
+        return false;
+    }
+
+    float queuePriority = 1.0f;
+    VkDeviceQueueCreateInfo queueCreateInfo = {};
+    queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queueCreateInfo.queueFamilyIndex = carpVk.queueIndex;
+    queueCreateInfo.queueCount = 1;
+    queueCreateInfo.pQueuePriorities = &queuePriority;
+#if 0
+    VulkanDeviceOptionals optionals = sGetDeviceOptionals(carpVk.physicalDevice);
+    // createdeviceinfo
+    {
+        static constexpr VkPhysicalDeviceFeatures deviceFeatures = {
+            //.fillModeNonSolid = VK_TRUE,
+            .samplerAnisotropy = VK_FALSE,
+        };
+        static constexpr  VkPhysicalDeviceVulkan13Features deviceFeatures13 = {
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+            .dynamicRendering = VK_TRUE,
+        };
+
+        static constexpr  VkPhysicalDeviceFeatures2 physicalDeviceFeatures2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+            .pNext = VulkanApiVersion >= VK_API_VERSION_1_3 ? (void*)&deviceFeatures13 : nullptr,
+            .features = deviceFeatures,
+        };
+
+#endif
+    VkDeviceCreateInfo createInfo = { .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
+    //createInfo.pNext = &physicalDeviceFeatures2;
+
+    createInfo.queueCreateInfoCount = 1;
+    createInfo.pQueueCreateInfos = &queueCreateInfo;
+
+
+
+    createInfo.pEnabledFeatures = nullptr;
+    /*
+        deviceExts.push_back(VK_EXT_DEBUG_MARKER_EXTENSION_NAME);
+    */
+    createInfo.enabledExtensionCount = ARRAYSIZES(sDeviceExtensions);
+    createInfo.ppEnabledExtensionNames = sDeviceExtensions;
+
+    VulkanInstanceBuilderImpl *casted =  sGetBuilderCasted(builder);
+    createInfo.ppEnabledLayerNames = casted->m_createInfo.ppEnabledLayerNames;
+    createInfo.enabledLayerCount = casted->m_createInfo.enabledLayerCount;
+
+    VK_CHECK_CALL(vkCreateDevice(carpVk.physicalDevice, &createInfo,
+        nullptr, &carpVk.device));
+
+    ASSERT(carpVk.device);
+
+    if (!carpVk.device)
+        return false;
+
+    vkGetDeviceQueue(carpVk.device, 0, carpVk.queueIndex, &carpVk.queue);
+    ASSERT(carpVk.queue);
+
+
+    if (!carpVk.device || !carpVk.queue)
+        return false;
+
+
+    //if(optionals.canUseVulkanRenderdocExtensionMarker)
+    //    sAcquireDeviceDebugRenderdocFunctions(vulk->device);
     return true;
 }

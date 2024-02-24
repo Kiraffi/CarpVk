@@ -21,11 +21,6 @@ endif()
 
 include_directories(${Vulkan_INCLUDE_DIRS})
 
-
-
-#add_subdirectory("external/volk")
-
-
 add_library(carpvk OBJECT
         src/carpvk.cpp
         src/carpvk.h
@@ -35,9 +30,7 @@ add_executable(carpvktest src/main.cpp)
 
 target_include_directories(carpvk PUBLIC src)
 
-
 target_link_libraries(carpvktest PRIVATE
-        #volk
         vulkan
         carpvk
 )

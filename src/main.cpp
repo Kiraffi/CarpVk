@@ -20,11 +20,6 @@ int main()
     };
 
 
-    if(!initVolk())
-    {
-        printf("Failed to init volk\n");
-        return 2;
-    }
     //printExtensions();
     //printLayers();
 
