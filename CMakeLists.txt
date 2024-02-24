@@ -33,6 +33,9 @@ add_library(carpvklib OBJECT
 
 add_executable(carpvk src/main.cpp)
 
+target_include_directories(carpvklib PUBLIC src)
+
+
 target_link_libraries(carpvk PRIVATE
         volk
         carpvklib
