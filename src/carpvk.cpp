@@ -3,8 +3,8 @@
 #include <string.h>
 #include <vector>
 
-#include <volk.h>
-//#include <vulkan/vulkan_core.h>
+//#include <volk.h>
+#include <vulkan/vulkan_core.h>
 
 //#include <volk.h>
 
@@ -206,7 +206,7 @@ bool initVolk()
 {
     VkResult r;
     uint32_t version;
-
+#if 0
     r = volkInitialize();
     if (r != VK_SUCCESS)
     {
@@ -219,7 +219,7 @@ bool initVolk()
         VK_VERSION_MAJOR(version),
         VK_VERSION_MINOR(version),
         VK_VERSION_PATCH(version));
-
+#endif
     return true;
 }
 
@@ -424,9 +424,9 @@ bool createPhysicalDevice(CarpVk& carpVk, bool useIntegratedGpu)
         : VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 
     VkPhysicalDevice devices[256] = {};
-    u32 count = ARRAYSIZES(devices);
+    u32 count = 0;
 
-    VK_CHECK_CALL(vkEnumeratePhysicalDevices(carpVk.instance, &count, nullptr));
+    VK_CHECK_CALL(vkEnumeratePhysicalDevices(carpVk.instance, &count, devices));
     ASSERT(count > 256);
     VK_CHECK_CALL(vkEnumeratePhysicalDevices(carpVk.instance, &count, devices));
 

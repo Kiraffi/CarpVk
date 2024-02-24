@@ -23,7 +23,7 @@ include_directories(${Vulkan_INCLUDE_DIRS})
 
 
 
-add_subdirectory("external/volk")
+#add_subdirectory("external/volk")
 
 
 add_library(carpvk OBJECT
@@ -37,6 +37,7 @@ target_include_directories(carpvk PUBLIC src)
 
 
 target_link_libraries(carpvktest PRIVATE
-        volk
+        #volk
+        vulkan
         carpvk
 )
