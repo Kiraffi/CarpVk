@@ -26,9 +26,14 @@ include_directories(${Vulkan_INCLUDE_DIRS})
 add_subdirectory("external/volk")
 
 
-add_executable(carpvk src/main.cpp src/carpvk.cpp)
+add_library(carpvklib OBJECT
+        src/carpvk.cpp
+        src/carpvk.h
+)
+
+add_executable(carpvk src/main.cpp)
 
 target_link_libraries(carpvk PRIVATE
         volk
-        #vulkan
+        carpvklib
 )
