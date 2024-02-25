@@ -1,10 +1,6 @@
 #pragma once
 
-struct VulkanInstanceBuilder;
-struct alignas(sizeof(char*)) VulkanInstanceBuilder
-{
-    char size[1024];
-};
+#include <stdint.h>
 
 struct VkInstance_T;
 struct VkDevice_T;
@@ -12,13 +8,33 @@ struct VkDebugUtilsMessengerEXT_T;
 struct VkSurfaceKHR_T;
 struct VkPhysicalDevice_T;
 struct VkQueue_T;
+struct VkSwapchainKHR_T;
+struct VkImage_T;
+struct VkImageView_T;
+
+struct VulkanInstanceBuilder;
+
+struct alignas(sizeof(char*)) VulkanInstanceBuilder
+{
+    char size[1024];
+};
+
+enum class VSyncType : unsigned char
+{
+    FIFO_VSYNC,
+    IMMEDIATE_NO_VSYNC,
+    MAILBOX_VSYNC,
+};
+
+
 struct CarpSwapChainFormats
 {
-    int defaultColorFormat;
-    int presentColorFormat;
-    int depthFormat;
-    int colorSpace;
+    int64_t defaultColorFormat;
+    int64_t presentColorFormat;
+    int64_t depthFormat;
+    int64_t colorSpace;
 };
+
 
 struct CarpVk
 {
@@ -29,10 +45,16 @@ struct CarpVk
     VkDebugUtilsMessengerEXT_T* debugMessenger = nullptr;
     VkSurfaceKHR_T* surface = nullptr;
     VkQueue_T* queue = nullptr;
+    VkSwapchainKHR_T* swapchain = nullptr;
+    VkImage_T* swapchainImages[16] = {};
+    VkImageView_T* swapchainImagesViews[16] = {};
 
     CarpSwapChainFormats swapchainFormats = {};
 
     int queueIndex = -1;
+    int swapchainCount = 0;
+    int swapchainWidth = 0;
+    int swapchainHeight = 0;
 };
 
 
@@ -58,3 +80,4 @@ bool instanceBuilderFinish(VulkanInstanceBuilder &builder, CarpVk& carpVk);
 
 bool createPhysicalDevice(CarpVk& carpVk, bool useIntegratedGpu);
 bool createDeviceWithQueues(CarpVk& carpVk, VulkanInstanceBuilder& builder);
+bool createSwapchain(CarpVk& carpVk, VSyncType vsyncMode, int width, int height);

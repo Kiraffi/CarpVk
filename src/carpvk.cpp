@@ -194,11 +194,46 @@ static int sFindQueueFamilies(VkPhysicalDevice physicalDevice, VkSurfaceKHR surf
 }
 
 
+
+
+static void sDestroySwapchain(CarpVk& carpVk)
+{
+    for(int i = 0; i < carpVk.swapchainCount; ++i)
+    {
+        vkDestroyImageView(carpVk.device, carpVk.swapchainImagesViews[i], nullptr);
+    }
+
+    carpVk.swapchainCount = 0u;
+    carpVk.swapchainWidth = carpVk.swapchainHeight = 0u;
+
+    if(carpVk.swapchain != VK_NULL_HANDLE)
+        vkDestroySwapchainKHR(carpVk.device, carpVk.swapchain, nullptr);
+    carpVk.swapchain = VK_NULL_HANDLE;
+}
+
+
+
+
+
+
+
+
+
+
 void deinitCarpVk(CarpVk& carpVk)
 {
     if (carpVk.instance == nullptr)
     {
         return;
+    }
+    if (carpVk.device)
+    {
+        VK_CHECK_CALL(vkDeviceWaitIdle(carpVk.device));
+        sDestroySwapchain(carpVk);
+
+
+        vkDestroyDevice(carpVk.device, nullptr);
+        carpVk.device = nullptr;
     }
 
 
@@ -214,11 +249,6 @@ void deinitCarpVk(CarpVk& carpVk)
         carpVk.debugMessenger = nullptr;
     }
 
-    if (carpVk.device)
-    {
-        vkDestroyDevice(carpVk.device, nullptr);
-        carpVk.device = nullptr;
-    }
     vkDestroyInstance(carpVk.instance, nullptr);
 }
 
@@ -656,5 +686,125 @@ bool createDeviceWithQueues(CarpVk& carpVk, VulkanInstanceBuilder& builder)
 
     //if(optionals.canUseVulkanRenderdocExtensionMarker)
     //    sAcquireDeviceDebugRenderdocFunctions(vulk->device);
+    return true;
+}
+
+
+
+bool createSwapchain(CarpVk& carpVk, VSyncType vsyncMode, int width, int height)
+{
+    VkPresentModeKHR findPresentMode = VkPresentModeKHR::VK_PRESENT_MODE_FIFO_KHR;
+    switch (vsyncMode)
+    {
+        case VSyncType::FIFO_VSYNC: findPresentMode = VkPresentModeKHR::VK_PRESENT_MODE_FIFO_KHR; break;
+        case VSyncType::IMMEDIATE_NO_VSYNC: findPresentMode = VkPresentModeKHR::VK_PRESENT_MODE_IMMEDIATE_KHR; break;
+        case VSyncType::MAILBOX_VSYNC: findPresentMode = VkPresentModeKHR::VK_PRESENT_MODE_MAILBOX_KHR; break;
+    }
+    {
+        SwapChainSupportDetails swapChainSupport = sQuerySwapChainSupport(carpVk.physicalDevice, carpVk.surface);
+        ASSERT(swapChainSupport.formatCount > 0);
+        VkSurfaceFormatKHR surfaceFormat = swapChainSupport.formats[0];
+        bool found = false;
+        for (const auto& availableFormat : swapChainSupport.formats)
+        {
+            if (availableFormat.format == carpVk.swapchainFormats.presentColorFormat
+                && availableFormat.colorSpace == carpVk.swapchainFormats.colorSpace)
+            {
+                surfaceFormat = availableFormat;
+                found = true;
+                break;
+            }
+        }
+        if(!found && swapChainSupport.formatCount == 1
+            && swapChainSupport.formats[0].format == VK_FORMAT_UNDEFINED)
+        {
+            surfaceFormat.colorSpace = (VkColorSpaceKHR)carpVk.swapchainFormats.colorSpace;
+            surfaceFormat.format = (VkFormat)carpVk.swapchainFormats.presentColorFormat;
+            found = true;
+        }
+        ASSERT(found);
+
+        VkPresentModeKHR presentMode = VkPresentModeKHR::VK_PRESENT_MODE_FIFO_KHR;
+        for (const auto& availablePresentMode : swapChainSupport.presentModes)
+        {
+            if (availablePresentMode == findPresentMode)
+            {
+                presentMode = availablePresentMode;
+                break;
+            }
+        }
+
+        VkExtent2D extent = swapChainSupport.capabilities.currentExtent;
+        if (swapChainSupport.capabilities.currentExtent.width == UINT32_MAX)
+        {
+            extent.width = u32(width);
+            extent.height = u32(height);
+
+
+            extent.width = MAX_VALUE(swapChainSupport.capabilities.minImageExtent.width,
+                MIN_VALUE(swapChainSupport.capabilities.maxImageExtent.width, extent.width));
+            extent.height = MAX_VALUE(swapChainSupport.capabilities.minImageExtent.height,
+                MIN_VALUE(swapChainSupport.capabilities.maxImageExtent.height, extent.height));
+        }
+
+        u32 imageCount = swapChainSupport.capabilities.minImageCount + 1;
+        if (swapChainSupport.capabilities.maxImageCount > 0
+            && imageCount > swapChainSupport.capabilities.maxImageCount)
+        {
+            imageCount = swapChainSupport.capabilities.maxImageCount;
+        }
+
+        VkSwapchainCreateInfoKHR createInfo = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
+        createInfo.surface = carpVk.surface;
+        createInfo.minImageCount = imageCount;
+        createInfo.imageFormat = surfaceFormat.format;
+        createInfo.imageColorSpace = surfaceFormat.colorSpace;
+        createInfo.imageExtent = extent;
+        createInfo.imageArrayLayers = 1;
+        createInfo.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;// | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        createInfo.oldSwapchain = carpVk.swapchain;
+
+        // Since everything is using single queueindex we dont have to check for multiple.
+        {
+            // Setting this to 1 + giving queuefamilyindices pointer
+            // caused crash with VkSwapchainCreateInfoKHR with AMD
+            createInfo.queueFamilyIndexCount = 0;
+            createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        }
+
+        createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
+        createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        createInfo.presentMode = presentMode;
+        createInfo.clipped = VK_TRUE;
+
+        VkSwapchainKHR swapchain = nullptr;
+        //    PreCallValidateCreateSwapchainKHR()
+        VkResult res = vkCreateSwapchainKHR(carpVk.device, &createInfo, nullptr, &swapchain);
+        VK_CHECK_CALL(res);
+        if (res != VK_SUCCESS)
+        {
+            printf("Failed to initialize swapchain\n");
+            return false;
+        }
+        carpVk.swapchain = swapchain;
+
+        carpVk.swapchainFormats.colorSpace = surfaceFormat.colorSpace;
+        carpVk.swapchainFormats.presentColorFormat = surfaceFormat.format;
+
+        carpVk.swapchainWidth = extent.width;
+        carpVk.swapchainHeight = extent.height;
+
+    }
+
+
+
+
+
+    u32 swapchainCount = 0;
+    VK_CHECK_CALL(vkGetSwapchainImagesKHR(carpVk.device, carpVk.swapchain, &swapchainCount, nullptr));
+
+    VK_CHECK_CALL(vkGetSwapchainImagesKHR(carpVk.device, carpVk.swapchain, &swapchainCount, carpVk.swapchainImages));
+    carpVk.swapchainCount = swapchainCount;
+
     return true;
 }
