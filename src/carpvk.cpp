@@ -3,10 +3,26 @@
 #include <string.h>
 
 #include <vulkan/vulkan_core.h>
+#define VMA_IMPLEMENTATION
+
+#ifdef __clang__
+#pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wtautological-compare" // comparison of unsigned expression < 0 is always false
+    #pragma clang diagnostic ignored "-Wunused-private-field"
+    #pragma clang diagnostic ignored "-Wunused-parameter"
+    #pragma clang diagnostic ignored "-Wmissing-field-initializers"
+    #pragma clang diagnostic ignored "-Wnullability-completeness"
+#endif
+
+#include "vk_mem_alloc.h"
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
 #include "common.h"
 
-uint32_t sVulkanApiVersion = VK_API_VERSION_1_3;
+static const uint32_t sVulkanApiVersion = VK_API_VERSION_1_3;
 
 struct VulkanInstanceBuilderImpl
 {
@@ -95,7 +111,10 @@ static const VkValidationFeatureEnableEXT sEnabledValidationFeatures[] =
 static const char* sDeviceExtensions[] =
 {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-    // VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
+    VK_EXT_SHADER_OBJECT_EXTENSION_NAME,
+
+    VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME,
+
     // VK_KHR_MAINTENANCE1_EXTENSION_NAME
     // VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME
 };
@@ -215,7 +234,76 @@ static void sDestroySwapchain(CarpVk& carpVk)
 
 
 
+static VkSemaphore sCreateSemaphore(CarpVk& carpVk)
+{
+    VkSemaphore semaphore = {};
+    VkSemaphoreCreateInfo semaphoreInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 
+    VK_CHECK_CALL(vkCreateSemaphore(carpVk.device, &semaphoreInfo, nullptr, &semaphore));
+    return semaphore;
+}
+
+static VkCommandPool sCreateCommandPool(CarpVk& carpVk)
+{
+    u32 familyIndex = carpVk.queueIndex;
+    VkCommandPoolCreateInfo poolCreateInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+    poolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolCreateInfo.queueFamilyIndex = familyIndex;
+
+    VkCommandPool commandPool = {};
+    VK_CHECK_CALL(vkCreateCommandPool(carpVk.device, &poolCreateInfo, nullptr, &commandPool));
+
+    return commandPool;
+}
+
+
+
+static VkQueryPool sCreateQueryPool(CarpVk& carpVk, u32 queryCount)
+{
+    VkQueryPoolCreateInfo createInfo = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+
+    createInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+    createInfo.queryCount = queryCount;
+
+    VkQueryPool pool = {};
+    VK_CHECK_CALL(vkCreateQueryPool(carpVk.device, &createInfo, nullptr, &pool));
+
+    ASSERT(pool);
+    return pool;
+}
+
+
+static VkFence sCreateFence(CarpVk& carpVk)
+{
+    VkFenceCreateInfo createInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+    createInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    VkFence result = {};
+    VK_CHECK_CALL(vkCreateFence(carpVk.device, &createInfo, nullptr, &result));
+    ASSERT(result);
+    return result;
+}
+
+
+
+
+
+
+static void sSetObjectName(uint64_t object, VkDebugReportObjectTypeEXT objectType, const char *name)
+{
+    /*
+    // Check for a valid function pointer
+    if (pfnDebugMarkerSetObjectName)
+    {
+        VkDebugMarkerObjectNameInfoEXT nameInfo = {};
+        nameInfo.sType = VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_NAME_INFO_EXT;
+        nameInfo.objectType = objectType;
+        nameInfo.object = object;
+        nameInfo.pObjectName = name;
+        pfnDebugMarkerSetObjectName(carpVk.device, &nameInfo);
+    }
+     */
+}
 
 
 
@@ -229,7 +317,35 @@ void deinitCarpVk(CarpVk& carpVk)
     if (carpVk.device)
     {
         VK_CHECK_CALL(vkDeviceWaitIdle(carpVk.device));
+
+        if(carpVk.destroyBuffers)
+        {
+            carpVk.destroyBuffers(carpVk);
+        }
+
+        vkDestroyCommandPool(carpVk.device, carpVk.commandPool, nullptr);
         sDestroySwapchain(carpVk);
+
+
+
+        for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+        {
+            vkDestroyQueryPool(carpVk.device, carpVk.queryPools[i], nullptr);
+        }
+
+
+        for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+        {
+            vkDestroyFence(carpVk.device, carpVk.fences[i], nullptr);
+            vkDestroySemaphore(carpVk.device, carpVk.acquireSemaphores[i], nullptr);
+            vkDestroySemaphore(carpVk.device, carpVk.releaseSemaphores[i], nullptr);
+        }
+
+        if (carpVk.allocator)
+        {
+            vmaDestroyAllocator(carpVk.allocator);
+            carpVk.allocator = nullptr;
+        }
 
 
         vkDestroyDevice(carpVk.device, nullptr);
@@ -629,28 +745,30 @@ bool createDeviceWithQueues(CarpVk& carpVk, VulkanInstanceBuilder& builder)
     queueCreateInfo.queueFamilyIndex = carpVk.queueIndex;
     queueCreateInfo.queueCount = 1;
     queueCreateInfo.pQueuePriorities = &queuePriority;
-#if 0
-    VulkanDeviceOptionals optionals = sGetDeviceOptionals(carpVk.physicalDevice);
-    // createdeviceinfo
-    {
-        static constexpr VkPhysicalDeviceFeatures deviceFeatures = {
-            //.fillModeNonSolid = VK_TRUE,
-            .samplerAnisotropy = VK_FALSE,
-        };
-        static constexpr  VkPhysicalDeviceVulkan13Features deviceFeatures13 = {
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-            .dynamicRendering = VK_TRUE,
-        };
 
-        static constexpr  VkPhysicalDeviceFeatures2 physicalDeviceFeatures2{
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-            .pNext = VulkanApiVersion >= VK_API_VERSION_1_3 ? (void*)&deviceFeatures13 : nullptr,
-            .features = deviceFeatures,
-        };
+    static constexpr VkPhysicalDeviceFeatures deviceFeatures = {
+        //.fillModeNonSolid = VK_TRUE,
+        .samplerAnisotropy = VK_FALSE,
+    };
+    static constexpr VkPhysicalDeviceShaderObjectFeaturesEXT shaderObjectFeature = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT,
+        .shaderObject = VK_TRUE,
+    };
 
-#endif
+    static constexpr VkPhysicalDeviceVulkan13Features deviceFeatures13 = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+        .pNext = (void *) &shaderObjectFeature,
+        .dynamicRendering = VK_TRUE,
+    };
+
+    static constexpr VkPhysicalDeviceFeatures2 physicalDeviceFeatures2 = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+        .pNext = (void *) &shaderObjectFeature,
+        .features = deviceFeatures,
+    };
+
     VkDeviceCreateInfo createInfo = { .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-    //createInfo.pNext = &physicalDeviceFeatures2;
+    createInfo.pNext = &physicalDeviceFeatures2;
 
     createInfo.queueCreateInfoCount = 1;
     createInfo.pQueueCreateInfos = &queueCreateInfo;
@@ -682,7 +800,23 @@ bool createDeviceWithQueues(CarpVk& carpVk, VulkanInstanceBuilder& builder)
 
     if (!carpVk.device || !carpVk.queue)
         return false;
+    // Init VMA
+    {
+        VmaVulkanFunctions vulkanFunctions = {};
+        vulkanFunctions.vkGetInstanceProcAddr = &vkGetInstanceProcAddr;
+        vulkanFunctions.vkGetDeviceProcAddr = &vkGetDeviceProcAddr;
 
+        VmaAllocatorCreateInfo allocatorCreateInfo = {};
+        allocatorCreateInfo.vulkanApiVersion = sVulkanApiVersion;
+        allocatorCreateInfo.physicalDevice = carpVk.physicalDevice;
+        allocatorCreateInfo.device = carpVk.device;
+        allocatorCreateInfo.instance = carpVk.instance;
+        allocatorCreateInfo.pVulkanFunctions = &vulkanFunctions;
+
+        VK_CHECK_CALL(vmaCreateAllocator(&allocatorCreateInfo, &carpVk.allocator));
+        if (!carpVk.allocator)
+            return false;
+    }
 
     //if(optionals.canUseVulkanRenderdocExtensionMarker)
     //    sAcquireDeviceDebugRenderdocFunctions(vulk->device);
@@ -805,6 +939,79 @@ bool createSwapchain(CarpVk& carpVk, VSyncType vsyncMode, int width, int height)
 
     VK_CHECK_CALL(vkGetSwapchainImagesKHR(carpVk.device, carpVk.swapchain, &swapchainCount, carpVk.swapchainImages));
     carpVk.swapchainCount = swapchainCount;
+
+    return true;
+}
+
+bool finalizeInit(CarpVk& carpVk)
+{
+    for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+    {
+        carpVk.queryPools[i] = sCreateQueryPool(carpVk, CarpVk::QueryCount);
+        ASSERT(carpVk.queryPools[i]);
+        if(!carpVk.queryPools[i])
+        {
+            printf("Failed to create vulkan query pool!\n");
+            return false;
+        }
+    }
+
+
+    for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+    {
+        carpVk.acquireSemaphores[i] = sCreateSemaphore(carpVk);
+        ASSERT(carpVk.acquireSemaphores[i]);
+        if(!carpVk.acquireSemaphores[i])
+        {
+            printf("Failed to create vulkan acquire semapohore!\n");
+            return false;
+        }
+
+        carpVk.releaseSemaphores[i] = sCreateSemaphore(carpVk);
+        ASSERT(carpVk.releaseSemaphores[i]);
+        if(!carpVk.releaseSemaphores[i])
+        {
+            printf("Failed to create vulkan release semaphore!\n");
+            return false;
+        }
+
+        carpVk.fences[i] = sCreateFence(carpVk);
+        ASSERT(carpVk.fences[i]);
+        if(!carpVk.fences[i])
+        {
+            printf("Failed to create vulkan fence!\n");
+            return false;
+        }
+    }
+    carpVk.commandPool = sCreateCommandPool(carpVk);
+    ASSERT(carpVk.commandPool);
+    if(!carpVk.commandPool)
+    {
+        printf("Failed to create vulkan command pool!\n");
+        return false;
+    }
+
+
+    VkCommandBufferAllocateInfo allocateInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+    allocateInfo.commandPool = carpVk.commandPool;
+    allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocateInfo.commandBufferCount = CarpVk::FramesInFlight;
+
+    {
+        VK_CHECK_CALL(vkAllocateCommandBuffers(carpVk.device, &allocateInfo, carpVk.commandBuffers));
+        for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+        {
+            if(!carpVk.commandBuffers[i])
+            {
+                printf("Failed to create vulkan command buffer!\n");
+                return false;
+            }
+
+            static const char* s = "Main command buffer";
+            sSetObjectName((uint64_t)carpVk.commandBuffers[i], VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT, s);
+        }
+    }
+
 
     return true;
 }

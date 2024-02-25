@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+
 struct VkInstance_T;
 struct VkDevice_T;
 struct VkDebugUtilsMessengerEXT_T;
@@ -11,14 +12,24 @@ struct VkQueue_T;
 struct VkSwapchainKHR_T;
 struct VkImage_T;
 struct VkImageView_T;
+struct VkQueryPool_T;
+struct VkSemaphore_T;
+struct VkFence_T;
+struct VkCommandPool_T;
+struct VkCommandBuffer_T;
+struct VmaAllocator_T;
 
-struct VulkanInstanceBuilder;
+
 
 struct alignas(sizeof(char*)) VulkanInstanceBuilder
 {
     char size[1024];
 };
 
+struct alignas(sizeof(char*)) ShaderBuilder
+{
+
+}
 enum class VSyncType : unsigned char
 {
     FIFO_VSYNC,
@@ -38,6 +49,8 @@ struct CarpSwapChainFormats
 
 struct CarpVk
 {
+    static const int FramesInFlight = 4;
+    static const int QueryCount = 128;
 
     VkInstance_T* instance = nullptr;
     VkPhysicalDevice_T* physicalDevice = nullptr;
@@ -49,7 +62,29 @@ struct CarpVk
     VkImage_T* swapchainImages[16] = {};
     VkImageView_T* swapchainImagesViews[16] = {};
 
+    VkQueryPool_T* queryPools[FramesInFlight] = {};
+    int queryPoolIndexCounts[FramesInFlight] = {};
+
+    VkSemaphore_T* acquireSemaphores[FramesInFlight] = {};
+    VkSemaphore_T* releaseSemaphores[FramesInFlight] = {};
+
+    VkFence_T* fences[FramesInFlight] = {};
+    VkCommandPool_T* commandPool = {};
+
+    VkCommandBuffer_T* commandBuffers[FramesInFlight] = {};
+
+    VmaAllocator_T* allocator = {};
+
+
+
     CarpSwapChainFormats swapchainFormats = {};
+
+    using FnDestroyBuffers = void (*)(CarpVk& carpVk);
+
+    FnDestroyBuffers destroyBuffers = nullptr;
+    void* destroyBuffersData = nullptr;
+
+    int64_t frameIndex = 0;
 
     int queueIndex = -1;
     int swapchainCount = 0;
@@ -81,3 +116,5 @@ bool instanceBuilderFinish(VulkanInstanceBuilder &builder, CarpVk& carpVk);
 bool createPhysicalDevice(CarpVk& carpVk, bool useIntegratedGpu);
 bool createDeviceWithQueues(CarpVk& carpVk, VulkanInstanceBuilder& builder);
 bool createSwapchain(CarpVk& carpVk, VSyncType vsyncMode, int width, int height);
+
+bool finalizeInit(CarpVk& carpVk);

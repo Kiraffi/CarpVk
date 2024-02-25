@@ -26,6 +26,10 @@ add_library(carpvk OBJECT
         src/carpvk.h
 )
 
+
+add_subdirectory("external/VulkanMemoryAllocator")
+target_link_libraries(carpvk PUBLIC GPUOpen::VulkanMemoryAllocator)
+
 add_executable(carpvktest src/main.cpp)
 
 target_include_directories(carpvk PUBLIC src)
