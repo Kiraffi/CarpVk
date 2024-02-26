@@ -26,10 +26,6 @@ struct alignas(sizeof(char*)) VulkanInstanceBuilder
     char size[1024];
 };
 
-struct alignas(sizeof(char*)) ShaderBuilder
-{
-
-}
 enum class VSyncType : unsigned char
 {
     FIFO_VSYNC,
@@ -90,6 +86,7 @@ struct CarpVk
     int swapchainCount = 0;
     int swapchainWidth = 0;
     int swapchainHeight = 0;
+    uint32_t imageIndex = 0;
 };
 
 
