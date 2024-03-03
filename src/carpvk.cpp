@@ -26,6 +26,56 @@
 
 static const uint32_t sVulkanApiVersion = VK_API_VERSION_1_3;
 
+
+static VkInstance sVkInstance = {};
+
+
+
+static VkPhysicalDevice_T* sVkPhysicalDevice = {};
+static VkDevice_T* sVkDevice = {};
+static VkDebugUtilsMessengerEXT_T* sVkDebugMessenger = {};
+static VkSurfaceKHR_T* sVkSurface = {};
+static VkQueue_T* sVkQueue = {};
+static VkSwapchainKHR_T* sVkSwapchain = {};
+static VkImage_T* sVkSwapchainImages[16] = {};
+static VkImageView_T* sVkSwapchainImagesViews[16] = {};
+
+static VkQueryPool_T* sVkQueryPools[CarpVk::FramesInFlight] = {};
+static int sVkQueryPoolIndexCounts[CarpVk::FramesInFlight] = {};
+
+static VkSemaphore_T* sVkAcquireSemaphores[CarpVk::FramesInFlight] = {};
+static VkSemaphore_T* sVkReleaseSemaphores[CarpVk::FramesInFlight] = {};
+
+static VkFence_T* sVkFences[CarpVk::FramesInFlight] = {};
+static VkCommandPool_T* sVkCommandPool = {};
+
+static VkCommandBuffer_T* sVkCommandBuffers[CarpVk::FramesInFlight] = {};
+
+static VmaAllocator_T* sVkAllocator = {};
+
+static CarpSwapChainFormats sVkSwapchainFormats = {};
+
+//using FnDestroyBuffers = void (*)(CarpVk& carpVk);
+
+//static FnDestroyBuffers sVkDestroyBuffers = nullptr;
+//static void* sVkDestroyBuffersData = nullptr;
+
+static int64_t sVkFrameIndex = -1;
+
+static int sVkQueueIndex = -1;
+static int sVkSwapchainCount = 0;
+static int sVkSwapchainWidth = 0;
+static int sVkSwapchainHeight = 0;
+static uint32_t sVkImageIndex = 0;
+
+
+
+
+
+
+
+
+
 struct VulkanInstanceBuilderImpl
 {
     VkApplicationInfo m_appInfo = {
@@ -251,51 +301,51 @@ static int sFindQueueFamilies(VkPhysicalDevice physicalDevice, VkSurfaceKHR surf
 
 
 
-static void sDestroySwapchain(CarpVk& carpVk)
+static void sDestroySwapchain()
 {
-    for(int i = 0; i < carpVk.swapchainCount; ++i)
+    for(int i = 0; i < sVkSwapchainCount; ++i)
     {
-        vkDestroyImageView(carpVk.device, carpVk.swapchainImagesViews[i], nullptr);
+        vkDestroyImageView(sVkDevice, sVkSwapchainImagesViews[i], nullptr);
     }
 
-    carpVk.swapchainCount = 0u;
-    carpVk.swapchainWidth = carpVk.swapchainHeight = 0u;
+    sVkSwapchainCount = 0u;
+    sVkSwapchainWidth = sVkSwapchainHeight = 0u;
 
-    if(carpVk.swapchain != VK_NULL_HANDLE)
-        vkDestroySwapchainKHR(carpVk.device, carpVk.swapchain, nullptr);
-    carpVk.swapchain = VK_NULL_HANDLE;
+    if(sVkSwapchain != VK_NULL_HANDLE)
+        vkDestroySwapchainKHR(sVkDevice, sVkSwapchain, nullptr);
+    sVkSwapchain = VK_NULL_HANDLE;
 }
 
 
 
 
 
-static VkSemaphore sCreateSemaphore(CarpVk& carpVk)
+static VkSemaphore sCreateSemaphore()
 {
     VkSemaphore semaphore = {};
     VkSemaphoreCreateInfo semaphoreInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 
-    VK_CHECK_CALL(vkCreateSemaphore(carpVk.device, &semaphoreInfo, nullptr, &semaphore));
+    VK_CHECK_CALL(vkCreateSemaphore(sVkDevice, &semaphoreInfo, nullptr, &semaphore));
     return semaphore;
 }
 
-static VkCommandPool sCreateCommandPool(CarpVk& carpVk)
+static VkCommandPool sCreateCommandPool()
 {
-    u32 familyIndex = carpVk.queueIndex;
+    u32 familyIndex = sVkQueueIndex;
     VkCommandPoolCreateInfo poolCreateInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
     poolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     //poolCreateInfo.flags = 0; //VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     poolCreateInfo.queueFamilyIndex = familyIndex;
 
     VkCommandPool commandPool = {};
-    VK_CHECK_CALL(vkCreateCommandPool(carpVk.device, &poolCreateInfo, nullptr, &commandPool));
+    VK_CHECK_CALL(vkCreateCommandPool(sVkDevice, &poolCreateInfo, nullptr, &commandPool));
 
     return commandPool;
 }
 
 
 
-static VkQueryPool sCreateQueryPool(CarpVk& carpVk, u32 queryCount)
+static VkQueryPool sCreateQueryPool(u32 queryCount)
 {
     VkQueryPoolCreateInfo createInfo = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
 
@@ -303,20 +353,20 @@ static VkQueryPool sCreateQueryPool(CarpVk& carpVk, u32 queryCount)
     createInfo.queryCount = queryCount;
 
     VkQueryPool pool = {};
-    VK_CHECK_CALL(vkCreateQueryPool(carpVk.device, &createInfo, nullptr, &pool));
+    VK_CHECK_CALL(vkCreateQueryPool(sVkDevice, &createInfo, nullptr, &pool));
 
     ASSERT(pool);
     return pool;
 }
 
 
-static VkFence sCreateFence(CarpVk& carpVk)
+static VkFence sCreateFence()
 {
     VkFenceCreateInfo createInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
     createInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
     VkFence result = {};
-    VK_CHECK_CALL(vkCreateFence(carpVk.device, &createInfo, nullptr, &result));
+    VK_CHECK_CALL(vkCreateFence(sVkDevice, &createInfo, nullptr, &result));
     ASSERT(result);
     return result;
 }
@@ -337,7 +387,7 @@ static void sSetObjectName(uint64_t object, VkDebugReportObjectTypeEXT objectTyp
         nameInfo.objectType = objectType;
         nameInfo.object = object;
         nameInfo.pObjectName = name;
-        pfnDebugMarkerSetObjectName(carpVk.device, &nameInfo);
+        pfnDebugMarkerSetObjectName(sVkDevice, &nameInfo);
     }
      */
 }
@@ -347,62 +397,62 @@ static void sSetObjectName(uint64_t object, VkDebugReportObjectTypeEXT objectTyp
 
 void deinitCarpVk(CarpVk& carpVk)
 {
-    if (carpVk.instance == nullptr)
+    if (sVkInstance == nullptr)
     {
         return;
     }
-    if (carpVk.device)
+    if (sVkDevice)
     {
-        VK_CHECK_CALL(vkDeviceWaitIdle(carpVk.device));
+        VK_CHECK_CALL(vkDeviceWaitIdle(sVkDevice));
 
         if(carpVk.destroyBuffers)
         {
             carpVk.destroyBuffers(carpVk);
         }
 
-        vkDestroyCommandPool(carpVk.device, carpVk.commandPool, nullptr);
-        sDestroySwapchain(carpVk);
+        vkDestroyCommandPool(sVkDevice, sVkCommandPool, nullptr);
+        sDestroySwapchain();
 
 
 
         for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
         {
-            vkDestroyQueryPool(carpVk.device, carpVk.queryPools[i], nullptr);
+            vkDestroyQueryPool(sVkDevice, sVkQueryPools[i], nullptr);
         }
 
 
         for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
         {
-            vkDestroyFence(carpVk.device, carpVk.fences[i], nullptr);
-            vkDestroySemaphore(carpVk.device, carpVk.acquireSemaphores[i], nullptr);
-            vkDestroySemaphore(carpVk.device, carpVk.releaseSemaphores[i], nullptr);
+            vkDestroyFence(sVkDevice, sVkFences[i], nullptr);
+            vkDestroySemaphore(sVkDevice, sVkAcquireSemaphores[i], nullptr);
+            vkDestroySemaphore(sVkDevice, sVkReleaseSemaphores[i], nullptr);
         }
 
-        if (carpVk.allocator)
+        if (sVkAllocator)
         {
-            vmaDestroyAllocator(carpVk.allocator);
-            carpVk.allocator = nullptr;
+            vmaDestroyAllocator(sVkAllocator);
+            sVkAllocator = nullptr;
         }
 
 
-        vkDestroyDevice(carpVk.device, nullptr);
-        carpVk.device = nullptr;
+        vkDestroyDevice(sVkDevice, nullptr);
+        sVkDevice = nullptr;
     }
 
 
-    if (carpVk.surface)
+    if (sVkSurface)
     {
-        vkDestroySurfaceKHR(carpVk.instance, carpVk.surface, nullptr);
-        carpVk.surface = nullptr;
+        vkDestroySurfaceKHR(sVkInstance, sVkSurface, nullptr);
+        sVkSurface = nullptr;
     }
-    if(carpVk.debugMessenger)
+    if(sVkDebugMessenger)
     {
-        auto dest = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(carpVk.instance, "vkDestroyDebugUtilsMessengerEXT");
-        dest(carpVk.instance, carpVk.debugMessenger, nullptr);
-        carpVk.debugMessenger = nullptr;
+        auto dest = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(sVkInstance, "vkDestroyDebugUtilsMessengerEXT");
+        dest(sVkInstance, sVkDebugMessenger, nullptr);
+        sVkDebugMessenger = nullptr;
     }
 
-    vkDestroyInstance(carpVk.instance, nullptr);
+    vkDestroyInstance(sVkInstance, nullptr);
 }
 
 void printExtensions()
@@ -529,14 +579,14 @@ static VkDebugUtilsMessengerEXT sRegisterDebugCB(VkInstance vkInstance)
 }
 
 
-bool instanceBuilderFinish(VulkanInstanceBuilder &builder, CarpVk& carpVk)
+bool instanceBuilderFinish(VulkanInstanceBuilder &builder)
 {
     VkInstance result = sCreateInstance(builder);
     if(result == nullptr)
     {
         return false;
     }
-    carpVk.instance = result;
+    sVkInstance = result;
     VulkanInstanceBuilderImpl *casted =  sGetBuilderCasted(builder);
     if(casted->m_createInfo.enabledLayerCount > 0)
     {
@@ -545,7 +595,7 @@ bool instanceBuilderFinish(VulkanInstanceBuilder &builder, CarpVk& carpVk)
         {
             return false;
         }
-        carpVk.debugMessenger = debugMessenger;
+        sVkDebugMessenger = debugMessenger;
     }
 
     return true;
@@ -573,7 +623,7 @@ bool instanceBuilderFinish(VulkanInstanceBuilder &builder, CarpVk& carpVk)
 
 
 
-bool createPhysicalDevice(CarpVk& carpVk, bool useIntegratedGpu)
+bool createPhysicalDevice(bool useIntegratedGpu)
 {
     VkPhysicalDeviceType wantedDeviceType = useIntegratedGpu
         ? VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
@@ -582,9 +632,9 @@ bool createPhysicalDevice(CarpVk& carpVk, bool useIntegratedGpu)
     VkPhysicalDevice devices[256] = {};
     u32 count = 0;
 
-    VK_CHECK_CALL(vkEnumeratePhysicalDevices(carpVk.instance, &count, nullptr));
+    VK_CHECK_CALL(vkEnumeratePhysicalDevices(sVkInstance, &count, nullptr));
     ASSERT(count < 256);
-    VK_CHECK_CALL(vkEnumeratePhysicalDevices(carpVk.instance, &count, devices));
+    VK_CHECK_CALL(vkEnumeratePhysicalDevices(sVkInstance, &count, devices));
 
     VkPhysicalDevice primary = nullptr;
     VkPhysicalDevice secondary = nullptr;
@@ -605,7 +655,7 @@ bool createPhysicalDevice(CarpVk& carpVk, bool useIntegratedGpu)
             printf("Api of device is older than required for %s\n", prop.deviceName);
             continue;
         }
-        int queueIndex = sFindQueueFamilies(physicalDevice, carpVk.surface);
+        int queueIndex = sFindQueueFamilies(physicalDevice, sVkSurface);
         if(queueIndex == -1)
         {
             printf("No required queue indices found or they are not all possible to be in same queue: %s\n",
@@ -618,7 +668,7 @@ bool createPhysicalDevice(CarpVk& carpVk, bool useIntegratedGpu)
             printf("No timestamp and queries for %s\n", prop.deviceName);
             continue;
         }
-        SwapChainSupportDetails swapChainSupport = sQuerySwapChainSupport(physicalDevice, carpVk.surface);
+        SwapChainSupportDetails swapChainSupport = sQuerySwapChainSupport(physicalDevice, sVkSurface);
         bool swapChainAdequate = swapChainSupport.formatCount > 0 && swapChainSupport.presentModeCount > 0;
         if(!swapChainAdequate)
         {
@@ -701,17 +751,17 @@ bool createPhysicalDevice(CarpVk& carpVk, bool useIntegratedGpu)
     }
     if(primary)
     {
-        carpVk.physicalDevice = primary;
-        carpVk.queueIndex = primaryQueueIndex;
+        sVkPhysicalDevice = primary;
+        sVkQueueIndex = primaryQueueIndex;
     }
     else
     {
-        carpVk.physicalDevice = secondary;
-        carpVk.queueIndex = secondaryQueueIndex;
+        sVkPhysicalDevice = secondary;
+        sVkQueueIndex = secondaryQueueIndex;
     }
 
     VkPhysicalDeviceProperties prop;
-    vkGetPhysicalDeviceProperties(carpVk.physicalDevice, &prop);
+    vkGetPhysicalDeviceProperties(sVkPhysicalDevice, &prop);
 
     const char *typeText = prop.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? "discrete" : "integrated";
     printf("Picking %s device: %s\n", typeText, prop.deviceName);
@@ -719,20 +769,20 @@ bool createPhysicalDevice(CarpVk& carpVk, bool useIntegratedGpu)
 }
 
 
-bool createDeviceWithQueues(CarpVk& carpVk, VulkanInstanceBuilder& builder)
+bool createDeviceWithQueues(VulkanInstanceBuilder& builder)
 {
-    SwapChainSupportDetails swapChainSupport = sQuerySwapChainSupport(carpVk.physicalDevice, carpVk.surface);
+    SwapChainSupportDetails swapChainSupport = sQuerySwapChainSupport(sVkPhysicalDevice, sVkSurface);
     bool swapChainAdequate = swapChainSupport.formatCount > 0 && swapChainSupport.presentModeCount > 0;
     if(!swapChainAdequate)
         return false;
 
-    carpVk.swapchainFormats.presentColorFormat = VK_FORMAT_UNDEFINED;
-    carpVk.swapchainFormats.depthFormat = sDefaultPresent[0].depth;
-    carpVk.swapchainFormats.colorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
-    carpVk.swapchainFormats.defaultColorFormat = VK_FORMAT_UNDEFINED;
+    sVkSwapchainFormats.presentColorFormat = VK_FORMAT_UNDEFINED;
+    sVkSwapchainFormats.depthFormat = sDefaultPresent[0].depth;
+    sVkSwapchainFormats.colorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
+    sVkSwapchainFormats.defaultColorFormat = VK_FORMAT_UNDEFINED;
 
     for(u32 i = 0; i < swapChainSupport.formatCount
-    && carpVk.swapchainFormats.presentColorFormat == VK_FORMAT_UNDEFINED; ++i)
+    && sVkSwapchainFormats.presentColorFormat == VK_FORMAT_UNDEFINED; ++i)
     {
         for (const auto& format : sDefaultPresent)
         {
@@ -740,38 +790,38 @@ bool createDeviceWithQueues(CarpVk& carpVk, VulkanInstanceBuilder& builder)
                 continue;
             if(swapChainSupport.formats[i].format != format.color)
                 continue;
-            carpVk.swapchainFormats.presentColorFormat = format.color;
-            carpVk.swapchainFormats.depthFormat = format.depth;
-            carpVk.swapchainFormats.colorSpace = format.colorSpace;
+            sVkSwapchainFormats.presentColorFormat = format.color;
+            sVkSwapchainFormats.depthFormat = format.depth;
+            sVkSwapchainFormats.colorSpace = format.colorSpace;
         }
     }
 
-    if(carpVk.swapchainFormats.presentColorFormat == VK_FORMAT_UNDEFINED
+    if(sVkSwapchainFormats.presentColorFormat == VK_FORMAT_UNDEFINED
        && swapChainSupport.formatCount == 1
        && swapChainSupport.formats[0].format == VK_FORMAT_UNDEFINED)
     {
-        carpVk.swapchainFormats.presentColorFormat = sDefaultPresent[0].color;
-        carpVk.swapchainFormats.colorSpace = sDefaultPresent[0].colorSpace;
-        carpVk.swapchainFormats.depthFormat = sDefaultPresent[0].depth;
+        sVkSwapchainFormats.presentColorFormat = sDefaultPresent[0].color;
+        sVkSwapchainFormats.colorSpace = sDefaultPresent[0].colorSpace;
+        sVkSwapchainFormats.depthFormat = sDefaultPresent[0].depth;
     }
-    ASSERT(carpVk.swapchainFormats.presentColorFormat != VK_FORMAT_UNDEFINED);
-    if(carpVk.swapchainFormats.presentColorFormat == VK_FORMAT_UNDEFINED)
+    ASSERT(sVkSwapchainFormats.presentColorFormat != VK_FORMAT_UNDEFINED);
+    if(sVkSwapchainFormats.presentColorFormat == VK_FORMAT_UNDEFINED)
     {
         return false;
     }
     for (const auto &format : sDefaultFormats)
     {
         VkFormatProperties formatProperties;
-        vkGetPhysicalDeviceFormatProperties(carpVk.physicalDevice, format.color, &formatProperties);
+        vkGetPhysicalDeviceFormatProperties(sVkPhysicalDevice, format.color, &formatProperties);
         if (((formatProperties.optimalTilingFeatures) & sFormatFlagBits) == sFormatFlagBits)
         {
-            carpVk.swapchainFormats.defaultColorFormat = format.color;
+            sVkSwapchainFormats.defaultColorFormat = format.color;
             break;
         }
     }
 
-    ASSERT(carpVk.swapchainFormats.defaultColorFormat != VK_FORMAT_UNDEFINED);
-    if(carpVk.swapchainFormats.defaultColorFormat == VK_FORMAT_UNDEFINED)
+    ASSERT(sVkSwapchainFormats.defaultColorFormat != VK_FORMAT_UNDEFINED);
+    if(sVkSwapchainFormats.defaultColorFormat == VK_FORMAT_UNDEFINED)
     {
         return false;
     }
@@ -779,7 +829,7 @@ bool createDeviceWithQueues(CarpVk& carpVk, VulkanInstanceBuilder& builder)
     float queuePriority = 1.0f;
     VkDeviceQueueCreateInfo queueCreateInfo = {};
     queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queueCreateInfo.queueFamilyIndex = carpVk.queueIndex;
+    queueCreateInfo.queueFamilyIndex = sVkQueueIndex;
     queueCreateInfo.queueCount = 1;
     queueCreateInfo.pQueuePriorities = &queuePriority;
 
@@ -787,11 +837,12 @@ bool createDeviceWithQueues(CarpVk& carpVk, VulkanInstanceBuilder& builder)
         //.fillModeNonSolid = VK_TRUE,
         .samplerAnisotropy = VK_FALSE,
     };
+    /*
     static constexpr VkPhysicalDeviceShaderObjectFeaturesEXT shaderObjectFeature = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT,
         .shaderObject = VK_TRUE,
     };
-
+    */
     static constexpr VkPhysicalDeviceVulkan13Features deviceFeatures13 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
         .pNext = nullptr, //(void *) &shaderObjectFeature,
@@ -824,19 +875,19 @@ bool createDeviceWithQueues(CarpVk& carpVk, VulkanInstanceBuilder& builder)
     createInfo.ppEnabledLayerNames = casted->m_createInfo.ppEnabledLayerNames;
     createInfo.enabledLayerCount = casted->m_createInfo.enabledLayerCount;
 
-    VK_CHECK_CALL(vkCreateDevice(carpVk.physicalDevice, &createInfo,
-        nullptr, &carpVk.device));
+    VK_CHECK_CALL(vkCreateDevice(sVkPhysicalDevice, &createInfo,
+        nullptr, &sVkDevice));
 
-    ASSERT(carpVk.device);
+    ASSERT(sVkDevice);
 
-    if (!carpVk.device)
+    if (!sVkDevice)
         return false;
 
-    vkGetDeviceQueue(carpVk.device, 0, carpVk.queueIndex, &carpVk.queue);
-    ASSERT(carpVk.queue);
+    vkGetDeviceQueue(sVkDevice, 0, sVkQueueIndex, &sVkQueue);
+    ASSERT(sVkQueue);
 
 
-    if (!carpVk.device || !carpVk.queue)
+    if (!sVkDevice || !sVkQueue)
         return false;
     // Init VMA
     {
@@ -846,13 +897,13 @@ bool createDeviceWithQueues(CarpVk& carpVk, VulkanInstanceBuilder& builder)
 
         VmaAllocatorCreateInfo allocatorCreateInfo = {};
         allocatorCreateInfo.vulkanApiVersion = sVulkanApiVersion;
-        allocatorCreateInfo.physicalDevice = carpVk.physicalDevice;
-        allocatorCreateInfo.device = carpVk.device;
-        allocatorCreateInfo.instance = carpVk.instance;
+        allocatorCreateInfo.physicalDevice = sVkPhysicalDevice;
+        allocatorCreateInfo.device = sVkDevice;
+        allocatorCreateInfo.instance = sVkInstance;
         allocatorCreateInfo.pVulkanFunctions = &vulkanFunctions;
 
-        VK_CHECK_CALL(vmaCreateAllocator(&allocatorCreateInfo, &carpVk.allocator));
-        if (!carpVk.allocator)
+        VK_CHECK_CALL(vmaCreateAllocator(&allocatorCreateInfo, &sVkAllocator));
+        if (!sVkAllocator)
             return false;
     }
 
@@ -863,7 +914,7 @@ bool createDeviceWithQueues(CarpVk& carpVk, VulkanInstanceBuilder& builder)
 
 
 
-bool createSwapchain(CarpVk& carpVk, VSyncType vsyncMode, int width, int height)
+bool createSwapchain(VSyncType vsyncMode, int width, int height)
 {
     VkPresentModeKHR findPresentMode = VkPresentModeKHR::VK_PRESENT_MODE_FIFO_KHR;
     switch (vsyncMode)
@@ -873,14 +924,14 @@ bool createSwapchain(CarpVk& carpVk, VSyncType vsyncMode, int width, int height)
         case VSyncType::MAILBOX_VSYNC: findPresentMode = VkPresentModeKHR::VK_PRESENT_MODE_MAILBOX_KHR; break;
     }
     {
-        SwapChainSupportDetails swapChainSupport = sQuerySwapChainSupport(carpVk.physicalDevice, carpVk.surface);
+        SwapChainSupportDetails swapChainSupport = sQuerySwapChainSupport(sVkPhysicalDevice, sVkSurface);
         ASSERT(swapChainSupport.formatCount > 0);
         VkSurfaceFormatKHR surfaceFormat = swapChainSupport.formats[0];
         bool found = false;
         for (const auto& availableFormat : swapChainSupport.formats)
         {
-            if (availableFormat.format == carpVk.swapchainFormats.presentColorFormat
-                && availableFormat.colorSpace == carpVk.swapchainFormats.colorSpace)
+            if (availableFormat.format == sVkSwapchainFormats.presentColorFormat
+                && availableFormat.colorSpace == sVkSwapchainFormats.colorSpace)
             {
                 surfaceFormat = availableFormat;
                 found = true;
@@ -890,8 +941,8 @@ bool createSwapchain(CarpVk& carpVk, VSyncType vsyncMode, int width, int height)
         if(!found && swapChainSupport.formatCount == 1
             && swapChainSupport.formats[0].format == VK_FORMAT_UNDEFINED)
         {
-            surfaceFormat.colorSpace = (VkColorSpaceKHR)carpVk.swapchainFormats.colorSpace;
-            surfaceFormat.format = (VkFormat)carpVk.swapchainFormats.presentColorFormat;
+            surfaceFormat.colorSpace = (VkColorSpaceKHR)sVkSwapchainFormats.colorSpace;
+            surfaceFormat.format = (VkFormat)sVkSwapchainFormats.presentColorFormat;
             found = true;
         }
         ASSERT(found);
@@ -927,7 +978,7 @@ bool createSwapchain(CarpVk& carpVk, VSyncType vsyncMode, int width, int height)
         }
 
         VkSwapchainCreateInfoKHR createInfo = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
-        createInfo.surface = carpVk.surface;
+        createInfo.surface = sVkSurface;
         createInfo.minImageCount = imageCount;
         createInfo.imageFormat = surfaceFormat.format;
         createInfo.imageColorSpace = surfaceFormat.colorSpace;
@@ -937,7 +988,7 @@ bool createSwapchain(CarpVk& carpVk, VSyncType vsyncMode, int width, int height)
             //| VK_IMAGE_USAGE_SAMPLED_BIT
             //| VK_IMAGE_USAGE_STORAGE_BIT
             | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        createInfo.oldSwapchain = carpVk.swapchain;
+        createInfo.oldSwapchain = sVkSwapchain;
 
         // Since everything is using single queueindex we dont have to check for multiple.
         {
@@ -954,20 +1005,20 @@ bool createSwapchain(CarpVk& carpVk, VSyncType vsyncMode, int width, int height)
 
         VkSwapchainKHR swapchain = nullptr;
         //    PreCallValidateCreateSwapchainKHR()
-        VkResult res = vkCreateSwapchainKHR(carpVk.device, &createInfo, nullptr, &swapchain);
+        VkResult res = vkCreateSwapchainKHR(sVkDevice, &createInfo, nullptr, &swapchain);
         VK_CHECK_CALL(res);
         if (res != VK_SUCCESS)
         {
             printf("Failed to initialize swapchain\n");
             return false;
         }
-        carpVk.swapchain = swapchain;
+        sVkSwapchain = swapchain;
 
-        carpVk.swapchainFormats.colorSpace = surfaceFormat.colorSpace;
-        carpVk.swapchainFormats.presentColorFormat = surfaceFormat.format;
+        sVkSwapchainFormats.colorSpace = surfaceFormat.colorSpace;
+        sVkSwapchainFormats.presentColorFormat = surfaceFormat.format;
 
-        carpVk.swapchainWidth = extent.width;
-        carpVk.swapchainHeight = extent.height;
+        sVkSwapchainWidth = extent.width;
+        sVkSwapchainHeight = extent.height;
 
     }
 
@@ -976,18 +1027,18 @@ bool createSwapchain(CarpVk& carpVk, VSyncType vsyncMode, int width, int height)
 
 
     u32 swapchainCount = 0;
-    VK_CHECK_CALL(vkGetSwapchainImagesKHR(carpVk.device, carpVk.swapchain, &swapchainCount, nullptr));
+    VK_CHECK_CALL(vkGetSwapchainImagesKHR(sVkDevice, sVkSwapchain, &swapchainCount, nullptr));
 
-    VK_CHECK_CALL(vkGetSwapchainImagesKHR(carpVk.device, carpVk.swapchain, &swapchainCount, carpVk.swapchainImages));
-    carpVk.swapchainCount = swapchainCount;
+    VK_CHECK_CALL(vkGetSwapchainImagesKHR(sVkDevice, sVkSwapchain, &swapchainCount, sVkSwapchainImages));
+    sVkSwapchainCount = swapchainCount;
 
     for(int i = 0; i < swapchainCount; ++i)
     {
         VkImageViewCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        createInfo.image = carpVk.swapchainImages[i];
+        createInfo.image = sVkSwapchainImages[i];
         createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        createInfo.format = (VkFormat)carpVk.swapchainFormats.presentColorFormat;
+        createInfo.format = (VkFormat)sVkSwapchainFormats.presentColorFormat;
         createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
         createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
         createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -998,7 +1049,7 @@ bool createSwapchain(CarpVk& carpVk, VSyncType vsyncMode, int width, int height)
         createInfo.subresourceRange.baseArrayLayer = 0;
         createInfo.subresourceRange.layerCount = 1;
 
-        VK_CHECK_CALL(vkCreateImageView(carpVk.device, &createInfo, nullptr, &carpVk.swapchainImagesViews[i]));
+        VK_CHECK_CALL(vkCreateImageView(sVkDevice, &createInfo, nullptr, &sVkSwapchainImagesViews[i]));
     }
 
     return true;
@@ -1008,9 +1059,9 @@ bool finalizeInit(CarpVk& carpVk)
 {
     for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
     {
-        carpVk.queryPools[i] = sCreateQueryPool(carpVk, CarpVk::QueryCount);
-        ASSERT(carpVk.queryPools[i]);
-        if(!carpVk.queryPools[i])
+        sVkQueryPools[i] = sCreateQueryPool(CarpVk::QueryCount);
+        ASSERT(sVkQueryPools[i]);
+        if(!sVkQueryPools[i])
         {
             printf("Failed to create vulkan query pool!\n");
             return false;
@@ -1020,33 +1071,33 @@ bool finalizeInit(CarpVk& carpVk)
 
     for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
     {
-        carpVk.acquireSemaphores[i] = sCreateSemaphore(carpVk);
-        ASSERT(carpVk.acquireSemaphores[i]);
-        if(!carpVk.acquireSemaphores[i])
+        sVkAcquireSemaphores[i] = sCreateSemaphore();
+        ASSERT(sVkAcquireSemaphores[i]);
+        if(!sVkAcquireSemaphores[i])
         {
             printf("Failed to create vulkan acquire semapohore!\n");
             return false;
         }
 
-        carpVk.releaseSemaphores[i] = sCreateSemaphore(carpVk);
-        ASSERT(carpVk.releaseSemaphores[i]);
-        if(!carpVk.releaseSemaphores[i])
+        sVkReleaseSemaphores[i] = sCreateSemaphore();
+        ASSERT(sVkReleaseSemaphores[i]);
+        if(!sVkReleaseSemaphores[i])
         {
             printf("Failed to create vulkan release semaphore!\n");
             return false;
         }
 
-        carpVk.fences[i] = sCreateFence(carpVk);
-        ASSERT(carpVk.fences[i]);
-        if(!carpVk.fences[i])
+        sVkFences[i] = sCreateFence();
+        ASSERT(sVkFences[i]);
+        if(!sVkFences[i])
         {
             printf("Failed to create vulkan fence!\n");
             return false;
         }
     }
-    carpVk.commandPool = sCreateCommandPool(carpVk);
-    ASSERT(carpVk.commandPool);
-    if(!carpVk.commandPool)
+    sVkCommandPool = sCreateCommandPool();
+    ASSERT(sVkCommandPool);
+    if(!sVkCommandPool)
     {
         printf("Failed to create vulkan command pool!\n");
         return false;
@@ -1054,22 +1105,22 @@ bool finalizeInit(CarpVk& carpVk)
 
 
     VkCommandBufferAllocateInfo allocateInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    allocateInfo.commandPool = carpVk.commandPool;
+    allocateInfo.commandPool = sVkCommandPool;
     allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     allocateInfo.commandBufferCount = CarpVk::FramesInFlight;
 
     {
-        VK_CHECK_CALL(vkAllocateCommandBuffers(carpVk.device, &allocateInfo, carpVk.commandBuffers));
+        VK_CHECK_CALL(vkAllocateCommandBuffers(sVkDevice, &allocateInfo, sVkCommandBuffers));
         for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
         {
-            if(!carpVk.commandBuffers[i])
+            if(!sVkCommandBuffers[i])
             {
                 printf("Failed to create vulkan command buffer!\n");
                 return false;
             }
 
             static const char* s = "Main command buffer";
-            sSetObjectName((uint64_t)carpVk.commandBuffers[i], VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT, s);
+            sSetObjectName((uint64_t)sVkCommandBuffers[i], VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT, s);
         }
     }
 
@@ -1087,7 +1138,7 @@ bool finalizeInit(CarpVk& carpVk)
 
 
 
-VkImageView_T* createImageView(CarpVk& carpVk, VkImage_T* image, int64_t format)
+VkImageView_T* createImageView(VkImage_T* image, int64_t format)
 {
     VkImageAspectFlags aspectMask = sGetAspectMaskFromFormat((VkFormat)format);
 
@@ -1113,15 +1164,14 @@ VkImageView_T* createImageView(CarpVk& carpVk, VkImage_T* image, int64_t format)
     createInfo.subresourceRange.layerCount = 1;
 
     VkImageView view = {};
-    VK_CHECK_CALL(vkCreateImageView(carpVk.device, &createInfo, nullptr, &view));
+    VK_CHECK_CALL(vkCreateImageView(sVkDevice, &createInfo, nullptr, &view));
 
     ASSERT(view);
     return view;
 }
 
 
-bool createImage(CarpVk& carpVk,
-    uint32_t width, uint32_t height,
+bool createImage(uint32_t width, uint32_t height,
     int64_t imageFormat, int64_t usage,
     Image& outImage)
 {
@@ -1136,7 +1186,7 @@ bool createImage(CarpVk& carpVk,
     createInfo.usage = (VkImageUsageFlags)usage;
     createInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     createInfo.queueFamilyIndexCount = 1;
-    uint32_t indices[] = { (uint32_t)carpVk.queueIndex };
+    uint32_t indices[] = { (uint32_t)sVkQueueIndex };
     createInfo.pQueueFamilyIndices = indices;
 
     VmaAllocationCreateInfo allocInfo = {};
@@ -1145,7 +1195,7 @@ bool createImage(CarpVk& carpVk,
     outImage.format = imageFormat;
     outImage.layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    VK_CHECK_CALL(vmaCreateImage(carpVk.allocator,
+    VK_CHECK_CALL(vmaCreateImage(sVkAllocator,
         &createInfo, &allocInfo, &outImage.image, &outImage.allocation, nullptr));
 
     ASSERT(outImage.image && outImage.allocation);
@@ -1153,10 +1203,13 @@ bool createImage(CarpVk& carpVk,
     if (!outImage.image || !outImage.allocation)
         return false;
 
-    outImage.view = createImageView(carpVk, outImage.image, (VkFormat)imageFormat);
+    outImage.view = createImageView(outImage.image, (VkFormat)imageFormat);
     ASSERT(outImage.view);
     if (!outImage.view)
         return false;
+
+    outImage.width = width;
+    outImage.height = height;
 
     //MyVulkan::setObjectName((u64)outImage.image, VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, imageName);
     //outImage.imageName = imageName;
@@ -1166,12 +1219,12 @@ bool createImage(CarpVk& carpVk,
     //outImage.layout = createInfo.initialLayout;
     return true;
 }
-void destroyImage(CarpVk& carpVk, Image& image)
+void destroyImage(Image& image)
 {
     if (image.view)
-        vkDestroyImageView(carpVk.device, image.view, nullptr);
+        vkDestroyImageView(sVkDevice, image.view, nullptr);
     if (image.image)
-        vmaDestroyImage(carpVk.allocator, image.image, image.allocation);
+        vmaDestroyImage(sVkAllocator, image.image, image.allocation);
     image = Image{};
 }
 
@@ -1224,16 +1277,355 @@ VkImageMemoryBarrier imageBarrier(VkImage image,
 }
 
 
-bool createShader(CarpVk& carpVk,
-    const char* code, int codeSize, VkShaderModule& outModule)
+bool createShader(const char* code, int codeSize, VkShaderModule& outModule)
 {
     VkShaderModuleCreateInfo createInfo = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
     createInfo.codeSize = codeSize;
     createInfo.pCode = (uint32_t*)code;
-    VK_CHECK_CALL(vkCreateShaderModule(carpVk.device, &createInfo, nullptr, &outModule));
+    VK_CHECK_CALL(vkCreateShaderModule(sVkDevice, &createInfo, nullptr, &outModule));
     ASSERT(outModule);
     if (!outModule)
         return false;
 
+    return true;
+}
+
+VkDescriptorSetLayout createSetLayout(const DescriptorSetLayout* descriptors, int32_t count)
+{
+    ASSERT(count > 0);
+    ASSERT(count < 16);
+
+
+    VkDescriptorSetLayoutBinding setBindings[16] = {};
+
+    for (int32_t i = 0; i < count; ++i)
+    {
+        const DescriptorSetLayout& layout = descriptors[i];
+
+        setBindings[i] = VkDescriptorSetLayoutBinding{
+            .binding = uint32_t(layout.bindingIndex),
+            .descriptorType = VkDescriptorType(layout.descriptorType),
+            .descriptorCount = 1,
+            .stageFlags = layout.stage, // VK_SHADER_STAGE_VERTEX_BIT;
+        };
+    }
+
+    VkDescriptorSetLayoutCreateInfo createInfo = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = u32(count),
+        .pBindings = setBindings,
+    };
+
+    VkDescriptorSetLayout setLayout = 0;
+    VK_CHECK_CALL(vkCreateDescriptorSetLayout(sVkDevice, &createInfo, nullptr, &setLayout));
+
+    ASSERT(setLayout);
+    return setLayout;
+}
+
+
+void destroyShaderModule(VkShaderModule_T** shaderModules, int32_t shaderModuleCount)
+{
+    for (int32_t i = 0; i < shaderModuleCount; ++i)
+    {
+        vkDestroyShaderModule(sVkDevice, shaderModules[i], nullptr);
+        shaderModules[i] = {};
+    }
+}
+
+
+void destroyPipeline(VkPipeline_T** pipelines, int32_t pipelineCount)
+{
+    for (int32_t i = 0; i < pipelineCount; ++i)
+    {
+        vkDestroyPipeline(sVkDevice, pipelines[i], nullptr);
+        pipelines[i] = {};
+    }
+}
+
+void destroyPipelineLayouts(VkPipelineLayout_T** pipelineLayouts, int32_t pipelineLayoutCount)
+{
+    for (int32_t i = 0; i < pipelineLayoutCount; ++i)
+    {
+        vkDestroyPipelineLayout(sVkDevice, pipelineLayouts[i], nullptr);
+        pipelineLayouts[i] = {};
+    }
+}
+
+void destroyDescriptorPools(VkDescriptorPool_T** pools, int32_t poolCount)
+{
+    for (int32_t i = 0; i < poolCount; ++i)
+    {
+        vkDestroyDescriptorPool(sVkDevice, pools[i], nullptr);
+        pools[i] = {};
+    }
+}
+
+void setVkSurface(VkSurfaceKHR_T* surface)
+{
+    sVkSurface = surface;
+}
+
+
+VkInstance_T* getVkInstance()
+{
+    return sVkInstance;
+}
+
+VkDevice_T* getVkDevice()
+{
+    return sVkDevice;
+}
+
+
+VkCommandBuffer_T* getVkCommandBuffer()
+{
+    int64_t frameIndex = sVkFrameIndex % CarpVk::FramesInFlight;
+    VkCommandBuffer commandBuffer = sVkCommandBuffers[frameIndex];
+    return commandBuffer;
+}
+
+const CarpSwapChainFormats& getSwapChainFormats()
+{
+    return sVkSwapchainFormats;
+}
+
+
+bool beginFrame()
+{
+    VkDevice device = getVkDevice();
+
+    sVkFrameIndex++;
+    int64_t frameIndex = sVkFrameIndex % CarpVk::FramesInFlight;
+    {
+        //ScopedTimer aq("Acquire");
+        VK_CHECK_CALL(vkWaitForFences(device, 1, &sVkFences[frameIndex], VK_TRUE, UINT64_MAX));
+    }
+    if (sVkAcquireSemaphores[frameIndex] == VK_NULL_HANDLE)
+    {
+        return false;
+    }
+    VkResult res = (vkAcquireNextImageKHR(device, sVkSwapchain, UINT64_MAX,
+        sVkAcquireSemaphores[frameIndex], VK_NULL_HANDLE, &sVkImageIndex));
+
+    //vulk->scratchBufferOffset = vulk->frameIndex * 32u * 1024u * 1024u;
+    //vulk->scratchBufferLastFlush = vulk->scratchBufferOffset;
+    //vulk->scratchBufferMaxOffset = (vulk->frameIndex + 1) * 32u * 1024u * 1024u;
+
+    //if (res == VK_ERROR_OUT_OF_DATE_KHR)
+    //{
+    //    if (resizeSwapchain())
+    //    {
+    //        VK_CHECK(vkDeviceWaitIdle(vulk->device));
+    //    }
+    //    return false;
+    //}
+    //else if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR)
+    //{
+    //    VK_CHECK(res);
+    //    return false;
+    //}
+
+    return true;
+
+}
+
+
+bool presentImage(Image& imageToPresent)
+{
+    VkDevice device = getVkDevice();
+
+    int64_t frameIndex = sVkFrameIndex % CarpVk::FramesInFlight;
+    VkCommandBuffer commandBuffer = getVkCommandBuffer();
+
+    VkImage swapchainImage = sVkSwapchainImages[sVkImageIndex];
+
+    /*
+    VkImageMemoryBarrier copyBeginBarriers[] =
+        {
+            imageBarrier(state.image,
+                VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL),
+
+            imageBarrier(swapchainImage,
+                0, VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_IMAGE_ASPECT_COLOR_BIT)
+        };
+
+//    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+    vkCmdPipelineBarrier(commandBuffer,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, ARRAYSIZES(copyBeginBarriers), copyBeginBarriers);
+*/
+    {
+        VkImageMemoryBarrier2 imageMemoryBarriers[2] = {
+            {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
+                .dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT_KHR,
+                .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
+                .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .image = swapchainImage,
+                .subresourceRange = {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .levelCount = 1,
+                    .layerCount = 1,
+                }
+            },
+
+            {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
+                .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, //  VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+                .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT, //  VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+                .dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
+                .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                .image = imageToPresent.image,
+                .subresourceRange = {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .levelCount = 1,
+                    .layerCount = 1,
+                }
+            }
+        };
+
+        VkDependencyInfoKHR dep2 = {};
+        dep2.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR;
+        dep2.imageMemoryBarrierCount = 2;
+        dep2.pImageMemoryBarriers = imageMemoryBarriers;
+
+        vkCmdPipelineBarrier2(commandBuffer, &dep2);
+
+    }
+
+
+
+
+    int width = imageToPresent.width;
+    int height = imageToPresent.height;
+
+    VkImageBlit2 imageBlitRegion = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2,
+        .srcSubresource = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .layerCount = 1,
+        },
+        .srcOffsets = {
+            VkOffset3D{ 0, 0, 0 },
+            VkOffset3D{ width, height, 1 },
+        },
+
+        .dstSubresource = {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .layerCount = 1,
+        },
+        .dstOffsets = {
+            VkOffset3D{ 0, 0, 0 },
+            VkOffset3D{ width, height, 1 },
+        }
+
+
+    };
+
+    VkBlitImageInfo2 imageBlitInfo = {
+        .sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2,
+        .srcImage = imageToPresent.image,
+        .srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        .dstImage = swapchainImage,
+        .dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        .regionCount = 1,
+        .pRegions = &imageBlitRegion,
+        .filter = VkFilter::VK_FILTER_NEAREST,
+    };
+
+
+    vkCmdBlitImage2(commandBuffer, &imageBlitInfo);
+    //state.image.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    //swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &imageBlitRegion, VkFilter::VK_FILTER_NEAREST);
+
+
+// Prepare image for presenting.
+/*
+    VkImageMemoryBarrier presentBarrier =
+        imageBarrier(swapchainImage,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            0, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            VK_IMAGE_ASPECT_COLOR_BIT);
+
+    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1, &presentBarrier);
+*/
+    {
+        // Need to figure out what is the proper barriers for transfering an image from
+        // copy target to present
+        VkImageMemoryBarrier2 presentBarrier = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
+            .srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT_KHR,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
+            .dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+            .dstAccessMask = VK_ACCESS_2_NONE,
+            .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+
+            .image = swapchainImage,
+            .subresourceRange = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .levelCount = 1,
+                .layerCount = 1,
+            },
+        };
+        VkDependencyInfoKHR dep2 = {};
+        dep2.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR;
+        dep2.imageMemoryBarrierCount = 1;
+        dep2.pImageMemoryBarriers = &presentBarrier;
+        vkCmdPipelineBarrier2(commandBuffer, &dep2);
+    }
+    VK_CHECK_CALL(vkEndCommandBuffer(commandBuffer));
+
+
+
+
+
+    // Submit
+    {
+        //VkPipelineStageFlags submitStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT; //VK_PIPELINE_STAGE_TRANSFER_BIT;
+        //VkPipelineStageFlags submitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; //VK_PIPELINE_STAGE_TRANSFER_BIT;
+        VkPipelineStageFlags submitStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT; // VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+
+        vkResetFences(device, 1, &sVkFences[frameIndex]);
+
+        VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+        submitInfo.waitSemaphoreCount = 1;
+        submitInfo.pWaitSemaphores = &sVkAcquireSemaphores[frameIndex];
+        submitInfo.pWaitDstStageMask = &submitStageMask;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &commandBuffer;
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pSignalSemaphores = &sVkReleaseSemaphores[frameIndex];
+        VK_CHECK_CALL(vkQueueSubmit(sVkQueue, 1, &submitInfo, sVkFences[frameIndex]));
+
+        VkPresentInfoKHR presentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+        presentInfo.waitSemaphoreCount = 1;
+        presentInfo.pWaitSemaphores = &sVkReleaseSemaphores[frameIndex];
+        presentInfo.swapchainCount = 1;
+        presentInfo.pSwapchains = &sVkSwapchain;
+        presentInfo.pImageIndices = &sVkImageIndex;
+
+        VkResult res = (vkQueuePresentKHR(sVkQueue, &presentInfo));
+        //if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR || vulk->needToResize)
+        //{
+        //    resizeSwapchain();
+        //    vulk->needToResize = false;
+        //    VK_CHECK(vkDeviceWaitIdle(vulk->device));
+        //}
+        //else
+        {
+            VK_CHECK_CALL(res);
+        }
+    }
+
+    VK_CHECK_CALL(vkDeviceWaitIdle(device));
     return true;
 }
