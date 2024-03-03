@@ -27,10 +27,7 @@
 
 static const uint32_t sVulkanApiVersion = VK_API_VERSION_1_3;
 
-
 static VkInstance sVkInstance = {};
-
-
 
 static VkPhysicalDevice sVkPhysicalDevice = {};
 static VkDevice sVkDevice = {};
@@ -56,11 +53,6 @@ static VmaAllocator sVkAllocator = {};
 
 static CarpSwapChainFormats sVkSwapchainFormats = {};
 
-//using FnDestroyBuffers = void (*)(CarpVk& carpVk);
-
-//static FnDestroyBuffers sVkDestroyBuffers = nullptr;
-//static void* sVkDestroyBuffersData = nullptr;
-
 static int64_t sVkFrameIndex = -1;
 
 static int sVkQueueIndex = -1;
@@ -69,14 +61,11 @@ static int sVkSwapchainWidth = 0;
 static int sVkSwapchainHeight = 0;
 static uint32_t sVkImageIndex = 0;
 
-
 static PFN_vkDebugMarkerSetObjectTagEXT debugMarkerSetObjectTag = nullptr;
 static PFN_vkDebugMarkerSetObjectNameEXT debugMarkerSetObjectName = nullptr;
 static PFN_vkCmdDebugMarkerBeginEXT cmdDebugMarkerBegin = nullptr;
 static PFN_vkCmdDebugMarkerEndEXT cmdDebugMarkerEnd = nullptr;
 static PFN_vkCmdDebugMarkerInsertEXT cmdDebugMarkerInsert = nullptr;
-
-
 
 static std::vector<Image*> allImages;
 static std::vector<Image*> allRenderTargetImages;
