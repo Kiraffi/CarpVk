@@ -32,27 +32,27 @@ static VkInstance sVkInstance = {};
 
 
 
-static VkPhysicalDevice_T* sVkPhysicalDevice = {};
-static VkDevice_T* sVkDevice = {};
-static VkDebugUtilsMessengerEXT_T* sVkDebugMessenger = {};
-static VkSurfaceKHR_T* sVkSurface = {};
-static VkQueue_T* sVkQueue = {};
-static VkSwapchainKHR_T* sVkSwapchain = {};
-static VkImage_T* sVkSwapchainImages[16] = {};
-static VkImageView_T* sVkSwapchainImagesViews[16] = {};
+static VkPhysicalDevice sVkPhysicalDevice = {};
+static VkDevice sVkDevice = {};
+static VkDebugUtilsMessengerEXT sVkDebugMessenger = {};
+static VkSurfaceKHR sVkSurface = {};
+static VkQueue sVkQueue = {};
+static VkSwapchainKHR sVkSwapchain = {};
+static VkImage sVkSwapchainImages[16] = {};
+static VkImageView sVkSwapchainImagesViews[16] = {};
 
-static VkQueryPool_T* sVkQueryPools[CarpVk::FramesInFlight] = {};
+static VkQueryPool sVkQueryPools[CarpVk::FramesInFlight] = {};
 static int sVkQueryPoolIndexCounts[CarpVk::FramesInFlight] = {};
 
-static VkSemaphore_T* sVkAcquireSemaphores[CarpVk::FramesInFlight] = {};
-static VkSemaphore_T* sVkReleaseSemaphores[CarpVk::FramesInFlight] = {};
+static VkSemaphore sVkAcquireSemaphores[CarpVk::FramesInFlight] = {};
+static VkSemaphore sVkReleaseSemaphores[CarpVk::FramesInFlight] = {};
 
-static VkFence_T* sVkFences[CarpVk::FramesInFlight] = {};
-static VkCommandPool_T* sVkCommandPools[CarpVk::FramesInFlight] = {};
+static VkFence sVkFences[CarpVk::FramesInFlight] = {};
+static VkCommandPool sVkCommandPools[CarpVk::FramesInFlight] = {};
 
-static VkCommandBuffer_T* sVkCommandBuffers[CarpVk::FramesInFlight] = {};
+static VkCommandBuffer sVkCommandBuffers[CarpVk::FramesInFlight] = {};
 
-static VmaAllocator_T* sVkAllocator = {};
+static VmaAllocator sVkAllocator = {};
 
 static CarpSwapChainFormats sVkSwapchainFormats = {};
 
@@ -465,13 +465,13 @@ void deinitCarpVk(CarpVk& carpVk)
     if (sVkSurface)
     {
         vkDestroySurfaceKHR(sVkInstance, sVkSurface, nullptr);
-        sVkSurface = nullptr;
+        sVkSurface = {};
     }
     if(sVkDebugMessenger)
     {
         auto dest = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(sVkInstance, "vkDestroyDebugUtilsMessengerEXT");
         dest(sVkInstance, sVkDebugMessenger, nullptr);
-        sVkDebugMessenger = nullptr;
+        sVkDebugMessenger = {};
     }
 
     vkDestroyInstance(sVkInstance, nullptr);
@@ -590,7 +590,7 @@ static VkDebugUtilsMessengerEXT sRegisterDebugCB(VkInstance vkInstance)
                              | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
     createInfo.pfnUserCallback = sDebugReportCB;
 
-    VkDebugUtilsMessengerEXT debugMessenger = nullptr;
+    VkDebugUtilsMessengerEXT debugMessenger = {};
 
     auto func = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(
         vkInstance, "vkCreateDebugUtilsMessengerEXT");
@@ -613,7 +613,7 @@ bool instanceBuilderFinish(VulkanInstanceBuilder &builder)
     if(casted->m_createInfo.enabledLayerCount > 0)
     {
         VkDebugUtilsMessengerEXT debugMessenger = sRegisterDebugCB(result);
-        if (debugMessenger == nullptr)
+        if (debugMessenger == 0)
         {
             return false;
         }
@@ -835,18 +835,6 @@ FoundSwapChain:
     {
         return false;
     }
-    /*
-    VkPhysicalDeviceImageFormatInfo2 imageFormatInfo = {
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2,
-        .format = sVkSwapchainFormats.presentColorFormat,
-        .type = VK_IMAGE_TYPE_2D,
-        .tiling = VK_IMAGE_TILING_OPTIMAL,
-        .usage = sFormatFlagBits,
-    };
-
-    VkImageFormatProperties2 imageFormatProperties = { .sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2 };
-    VkResult result = vkGetPhysicalDeviceImageFormatProperties2(sVkPhysicalDevice, &imageFormatInfo, &imageFormatProperties);
-    */
 
     // Find image format that works both compute and graphics
     for (const auto &format : sDefaultFormats)
@@ -874,18 +862,12 @@ FoundSwapChain:
     queueCreateInfo.pQueuePriorities = &queuePriority;
 
     static constexpr VkPhysicalDeviceFeatures deviceFeatures = {
-        //.fillModeNonSolid = VK_TRUE,
+        .fillModeNonSolid = VK_TRUE,
         .samplerAnisotropy = VK_FALSE,
     };
-    /*
-    static constexpr VkPhysicalDeviceShaderObjectFeaturesEXT shaderObjectFeature = {
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_OBJECT_FEATURES_EXT,
-        .shaderObject = VK_TRUE,
-    };
-    */
     static constexpr VkPhysicalDeviceVulkan13Features deviceFeatures13 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-        .pNext = nullptr, //(void *) &shaderObjectFeature,
+        .pNext = nullptr,
         .synchronization2 = VK_TRUE,
         .dynamicRendering = VK_TRUE,
     };
@@ -1043,7 +1025,7 @@ bool createSwapchain(VSyncType vsyncMode, int width, int height)
         createInfo.presentMode = presentMode;
         createInfo.clipped = VK_TRUE;
 
-        VkSwapchainKHR swapchain = nullptr;
+        VkSwapchainKHR swapchain = {};
         //    PreCallValidateCreateSwapchainKHR()
         VkResult res = vkCreateSwapchainKHR(sVkDevice, &createInfo, nullptr, &swapchain);
         VK_CHECK_CALL(res);
@@ -1181,10 +1163,10 @@ bool finalizeInit(CarpVk& carpVk)
 
 
 
-VkImageView_T* createImageView(VkImage_T* image, int64_t format)
+VkImageView createImageView(VkImage image, int64_t format)
 {
     VkImageAspectFlags aspectMask = sGetAspectMaskFromFormat((VkFormat)format);
-
+    
     VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
     createInfo.image = image;
     createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
@@ -1375,7 +1357,7 @@ VkDescriptorSetLayout createSetLayout(const DescriptorSetLayout* descriptors, in
 }
 
 
-void destroyShaderModule(VkShaderModule_T** shaderModules, int32_t shaderModuleCount)
+void destroyShaderModule(VkShaderModule* shaderModules, int32_t shaderModuleCount)
 {
     for (int32_t i = 0; i < shaderModuleCount; ++i)
     {
@@ -1385,7 +1367,7 @@ void destroyShaderModule(VkShaderModule_T** shaderModules, int32_t shaderModuleC
 }
 
 
-void destroyPipeline(VkPipeline_T** pipelines, int32_t pipelineCount)
+void destroyPipeline(VkPipeline* pipelines, int32_t pipelineCount)
 {
     for (int32_t i = 0; i < pipelineCount; ++i)
     {
@@ -1394,7 +1376,7 @@ void destroyPipeline(VkPipeline_T** pipelines, int32_t pipelineCount)
     }
 }
 
-void destroyPipelineLayouts(VkPipelineLayout_T** pipelineLayouts, int32_t pipelineLayoutCount)
+void destroyPipelineLayouts(VkPipelineLayout* pipelineLayouts, int32_t pipelineLayoutCount)
 {
     for (int32_t i = 0; i < pipelineLayoutCount; ++i)
     {
@@ -1403,7 +1385,7 @@ void destroyPipelineLayouts(VkPipelineLayout_T** pipelineLayouts, int32_t pipeli
     }
 }
 
-void destroyDescriptorPools(VkDescriptorPool_T** pools, int32_t poolCount)
+void destroyDescriptorPools(VkDescriptorPool* pools, int32_t poolCount)
 {
     for (int32_t i = 0; i < poolCount; ++i)
     {
@@ -1412,7 +1394,7 @@ void destroyDescriptorPools(VkDescriptorPool_T** pools, int32_t poolCount)
     }
 }
 
-void setVkSurface(VkSurfaceKHR_T* surface)
+void setVkSurface(VkSurfaceKHR surface)
 {
     sVkSurface = surface;
 }
@@ -1443,7 +1425,7 @@ const CarpSwapChainFormats& getSwapChainFormats()
 
 
 
-VkPipeline_T* createGraphicsPipeline(const GPBuilder& builder, const char* pipelineName)
+VkPipeline createGraphicsPipeline(const GPBuilder& builder, const char* pipelineName)
 {
     VkDevice device = getVkDevice();
 
@@ -1519,7 +1501,7 @@ VkPipeline_T* createGraphicsPipeline(const GPBuilder& builder, const char* pipel
     createInfo.pNext = &pipelineRenderingCreateInfo;
 
 
-    VkPipeline pipeline = 0;
+    VkPipeline pipeline = {};
     VK_CHECK_CALL(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &createInfo, nullptr, &pipeline));
     ASSERT(pipeline);
 

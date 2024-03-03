@@ -2,33 +2,41 @@
 
 #include <stdint.h>
 
+static const int PtrSize = sizeof(void *);
 
-struct VkInstance_T;
-struct VkDevice_T;
-struct VkDebugUtilsMessengerEXT_T;
-struct VkSurfaceKHR_T;
-struct VkPhysicalDevice_T;
-struct VkQueue_T;
-struct VkSwapchainKHR_T;
-struct VkImage_T;
-struct VkImageView_T;
-struct VkQueryPool_T;
-struct VkSemaphore_T;
-struct VkFence_T;
-struct VkCommandPool_T;
-struct VkCommandBuffer_T;
+#if PtrSize == 8
+#define VK_HANDLE(handleName) handleName##_T*
+#else
+#define VK_HANDLE(handleName) uint64_t
+#endif
+#define VK_PTR_HANDLE(handleName) handleName##_T*
 
-struct VmaAllocator_T;
-struct VmaAllocation_T;
 
-struct VkShaderModule_T;
-struct VkDescriptorSetLayout_T;
+VK_DEFINE_HANDLE(VkInstance)
+VK_DEFINE_HANDLE(VkPhysicalDevice)
+VK_DEFINE_HANDLE(VkDevice)
+VK_DEFINE_HANDLE(VkQueue)
+VK_DEFINE_HANDLE(VkCommandBuffer)
 
-struct VkPipeline_T;
-struct VkPipelineLayout_T;
-struct VkDescriptorPool_T;
+VK_HANDLE(VkDebugUtilsMessengerEXT);
+VK_HANDLE(VkSurfaceKHR);
+VK_HANDLE(VkSwapchainKHR);
+VK_HANDLE(VkImage);
+VK_HANDLE(VkImageView);
+VK_HANDLE(VkQueryPool);
+VK_HANDLE(VkSemaphore);
+VK_HANDLE(VkFence);
+VK_HANDLE(VkCommandPool);
 
-struct VkImageMemoryBarrier_T;
+VK_DEFINE_HANDLE(VmaAllocator);
+VK_DEFINE_HANDLE(VmaAllocation);
+
+VK_HANDLE(VkShaderModule);
+VK_HANDLE(VkDescriptorSetLayout);
+
+VK_HANDLE(VkPipeline);
+VK_HANDLE(VkPipelineLayout);
+VK_HANDLE(VkDescriptorPool);
 
 enum VkFormat;
 enum VkImageLayout;
@@ -36,9 +44,9 @@ enum VkColorSpaceKHR;
 
 struct Image
 {
-    VkImage_T* image = {};
-    VkImageView_T* view = {};
-    VmaAllocation_T* allocation = {};
+    VkImage image = {};
+    VkImageView view = {};
+    VmaAllocation allocation = {};
     const char* imageName = {};
     uint64_t stageMask = 0;
     uint64_t accessMask = 0;
@@ -81,45 +89,6 @@ struct CarpVk
 
     FnDestroyBuffers destroyBuffers = nullptr;
     void* destroyBuffersData = nullptr;
-
-    /*
-    VkInstance_T* instance = nullptr;
-    VkPhysicalDevice_T* physicalDevice = nullptr;
-    VkDevice_T* device = nullptr;
-    VkDebugUtilsMessengerEXT_T* debugMessenger = nullptr;
-    VkSurfaceKHR_T* surface = nullptr;
-    VkQueue_T* queue = nullptr;
-    VkSwapchainKHR_T* swapchain = nullptr;
-    VkImage_T* swapchainImages[16] = {};
-    VkImageView_T* swapchainImagesViews[16] = {};
-
-    VkQueryPool_T* queryPools[FramesInFlight] = {};
-    int queryPoolIndexCounts[FramesInFlight] = {};
-
-    VkSemaphore_T* acquireSemaphores[FramesInFlight] = {};
-    VkSemaphore_T* releaseSemaphores[FramesInFlight] = {};
-
-    VkFence_T* fences[FramesInFlight] = {};
-    VkCommandPool_T* commandPool = {};
-
-    VkCommandBuffer_T* commandBuffers[FramesInFlight] = {};
-
-    VmaAllocator_T* allocator = {};
-
-
-
-    CarpSwapChainFormats swapchainFormats = {};
-
-
-
-    int64_t frameIndex = -1;
-
-    int queueIndex = -1;
-    int swapchainCount = 0;
-    int swapchainWidth = 0;
-    int swapchainHeight = 0;
-    uint32_t imageIndex = 0;
-    */
 };
 
 
@@ -148,7 +117,7 @@ bool createDeviceWithQueues(VulkanInstanceBuilder& builder);
 bool createSwapchain(VSyncType vsyncMode, int width, int height);
 
 bool finalizeInit(CarpVk& carpVk);
-VkImageView_T* createImageView(VkImage_T* image, int64_t format);
+VkImageView createImageView(VkImage image, int64_t format);
 bool createImage(uint32_t width, uint32_t height,
     int64_t imageFormat, int64_t usage, const char* imageName,
     Image& outImage);
@@ -163,7 +132,7 @@ VkImageMemoryBarrier2 imageBarrier(Image &image,
     uint64_t srcStageMask, uint64_t srcAccessMask, VkImageLayout oldLayout,
     uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout);
 
-VkImageMemoryBarrier2 imageBarrier(VkImage_T* image,
+VkImageMemoryBarrier2 imageBarrier(VkImage image,
     uint64_t srcStageMask, uint64_t srcAccessMask, VkImageLayout oldLayout,
     uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout,
     uint32_t aspectMask);
@@ -177,7 +146,7 @@ struct GPBuilder
     VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
     VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     VkCompareOp depthCompareOp = VK_COMPARE_OP_LESS;
-    VkPipelineLayout_T* pipelineLayout = {};
+    VkPipelineLayout pipelineLayout = {};
     
     int stageInfoCount = 0;
     uint32_t colorFormatCount = 0;
@@ -189,7 +158,7 @@ struct GPBuilder
 };
 
 
-bool createShader(const char* code, int codeSize, VkShaderModule_T*& outModule);
+bool createShader(const char* code, int codeSize, VkShaderModule& outModule);
 
 
 struct DescriptorSetLayout
@@ -200,21 +169,21 @@ struct DescriptorSetLayout
 };
 
 
-VkDescriptorSetLayout_T* createSetLayout(const DescriptorSetLayout* descriptors, int32_t count);
+VkDescriptorSetLayout createSetLayout(const DescriptorSetLayout* descriptors, int32_t count);
 
-void destroyShaderModule(VkShaderModule_T** shaderModules, int32_t shaderModuleCount);
-void destroyPipeline(VkPipeline_T** pipelines, int32_t pipelineCount);
-void destroyPipelineLayouts(VkPipelineLayout_T** pipelineLayouts, int32_t pipelineLayoutCount);
-void destroyDescriptorPools(VkDescriptorPool_T** pools, int32_t poolCount);
+void destroyShaderModule(VkShaderModule* shaderModules, int32_t shaderModuleCount);
+void destroyPipeline(VkPipeline* pipelines, int32_t pipelineCount);
+void destroyPipelineLayouts(VkPipelineLayout* pipelineLayouts, int32_t pipelineLayoutCount);
+void destroyDescriptorPools(VkDescriptorPool* pools, int32_t poolCount);
 
-void setVkSurface(VkSurfaceKHR_T* surface);
-VkInstance_T* getVkInstance();
-VkDevice_T* getVkDevice();
-VkCommandBuffer_T* getVkCommandBuffer();
+void setVkSurface(VkSurfaceKHR surface);
+VkInstance getVkInstance();
+VkDevice getVkDevice();
+VkCommandBuffer getVkCommandBuffer();
 const CarpSwapChainFormats& getSwapChainFormats();
 
 
-VkPipeline_T* createGraphicsPipeline(const GPBuilder& builder, const char *pipelineName);
+VkPipeline createGraphicsPipeline(const GPBuilder& builder, const char *pipelineName);
 
 
 bool beginFrame();
