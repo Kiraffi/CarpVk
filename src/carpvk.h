@@ -28,16 +28,20 @@ struct VkPipeline_T;
 struct VkPipelineLayout_T;
 struct VkDescriptorPool_T;
 
+struct VkImageMemoryBarrier_T;
 
+enum VkFormat;
+enum VkImageLayout;
 
 struct Image
 {
-    VkImage_T* image = nullptr;
-    VkImageView_T* view = nullptr;
-    VmaAllocation_T* allocation = nullptr;
-    int64_t format = 0;
-    int64_t layout = 0;
-    int64_t accessMask = 0;
+    VkImage_T* image = {};
+    VkImageView_T* view = {};
+    VmaAllocation_T* allocation = {};
+    const char* imageName = {};
+    VkFormat format = {};
+    VkImageLayout layout = {};
+    uint32_t accessMask = 0;
     int32_t width = 0;
     int32_t height = 0;
 };
@@ -144,23 +148,23 @@ bool createSwapchain(VSyncType vsyncMode, int width, int height);
 bool finalizeInit(CarpVk& carpVk);
 VkImageView_T* createImageView(VkImage_T* image, int64_t format);
 bool createImage(uint32_t width, uint32_t height,
-    int64_t imageFormat, int64_t usage,
+    int64_t imageFormat, int64_t usage, const char* imageName,
     Image& outImage);
 
 void destroyImage(Image& image);
 
 
 VkImageMemoryBarrier imageBarrier(Image& image,
-    VkAccessFlags dstAccessMask, VkImageLayout newLayout);
+    uint32_t dstAccessMask, VkImageLayout newLayout);
 
 VkImageMemoryBarrier imageBarrier(Image& image,
-    VkAccessFlags srcAccessMask, VkImageLayout oldLayout,
-    VkAccessFlags dstAccessMask, VkImageLayout newLayout);
+    uint32_t srcAccessMask, VkImageLayout oldLayout,
+    uint32_t dstAccessMask, VkImageLayout newLayout);
 
 VkImageMemoryBarrier imageBarrier(VkImage_T* image,
-    VkAccessFlags srcAccessMask, VkImageLayout oldLayout,
-    VkAccessFlags dstAccessMask, VkImageLayout newLayout,
-    int64_t aspectMask);
+    uint32_t srcAccessMask, VkImageLayout oldLayout,
+    uint32_t dstAccessMask, VkImageLayout newLayout,
+    uint32_t aspectMask);
 
 
 struct GPBuilder

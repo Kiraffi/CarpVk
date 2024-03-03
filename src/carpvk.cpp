@@ -69,6 +69,12 @@ static int sVkSwapchainHeight = 0;
 static uint32_t sVkImageIndex = 0;
 
 
+static PFN_vkDebugMarkerSetObjectTagEXT debugMarkerSetObjectTag = nullptr;
+static PFN_vkDebugMarkerSetObjectNameEXT debugMarkerSetObjectName = nullptr;
+static PFN_vkCmdDebugMarkerBeginEXT cmdDebugMarkerBegin = nullptr;
+static PFN_vkCmdDebugMarkerEndEXT cmdDebugMarkerEnd = nullptr;
+static PFN_vkCmdDebugMarkerInsertEXT cmdDebugMarkerInsert = nullptr;
+
 
 
 
@@ -188,6 +194,20 @@ static const char* sDefaultValidationLayers[] =
     //"VK_LAYER_LUNARG_gfxreconstruct",
     //"VK_LAYER_LUNARG_api_dump"
 };
+
+static void sSetObjectName(uint64_t object, VkDebugReportObjectTypeEXT objectType, const char* name)
+{
+    // Check for a valid function pointer
+    if (debugMarkerSetObjectName)
+    {
+        VkDebugMarkerObjectNameInfoEXT nameInfo = {};
+        nameInfo.sType = VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_NAME_INFO_EXT;
+        nameInfo.objectType = objectType;
+        nameInfo.object = object;
+        nameInfo.pObjectName = name;
+        debugMarkerSetObjectName(sVkDevice, &nameInfo);
+    }
+}
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL sDebugReportCB(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -373,24 +393,17 @@ static VkFence sCreateFence()
 
 
 
-
-
-
-static void sSetObjectName(uint64_t object, VkDebugReportObjectTypeEXT objectType, const char *name)
+static void sAcquireDeviceDebugRenderdocFunctions(VkDevice device)
 {
-    /*
-    // Check for a valid function pointer
-    if (pfnDebugMarkerSetObjectName)
-    {
-        VkDebugMarkerObjectNameInfoEXT nameInfo = {};
-        nameInfo.sType = VK_STRUCTURE_TYPE_DEBUG_MARKER_OBJECT_NAME_INFO_EXT;
-        nameInfo.objectType = objectType;
-        nameInfo.object = object;
-        nameInfo.pObjectName = name;
-        pfnDebugMarkerSetObjectName(sVkDevice, &nameInfo);
-    }
-     */
+    debugMarkerSetObjectTag = (PFN_vkDebugMarkerSetObjectTagEXT)vkGetDeviceProcAddr(device, "vkDebugMarkerSetObjectTagEXT");
+    debugMarkerSetObjectName = (PFN_vkDebugMarkerSetObjectNameEXT)vkGetDeviceProcAddr(device, "vkDebugMarkerSetObjectNameEXT");
+    cmdDebugMarkerBegin = (PFN_vkCmdDebugMarkerBeginEXT)vkGetDeviceProcAddr(device, "vkCmdDebugMarkerBeginEXT");
+    cmdDebugMarkerEnd = (PFN_vkCmdDebugMarkerEndEXT)vkGetDeviceProcAddr(device, "vkCmdDebugMarkerEndEXT");
+    cmdDebugMarkerInsert = (PFN_vkCmdDebugMarkerInsertEXT)vkGetDeviceProcAddr(device, "vkCmdDebugMarkerInsertEXT");
 }
+
+
+
 
 
 
@@ -1172,7 +1185,7 @@ VkImageView_T* createImageView(VkImage_T* image, int64_t format)
 
 
 bool createImage(uint32_t width, uint32_t height,
-    int64_t imageFormat, int64_t usage,
+    int64_t imageFormat, int64_t usage, const char* imageName,
     Image& outImage)
 {
     VkImageCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
@@ -1192,8 +1205,6 @@ bool createImage(uint32_t width, uint32_t height,
     VmaAllocationCreateInfo allocInfo = {};
     allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
 
-    outImage.format = imageFormat;
-    outImage.layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     VK_CHECK_CALL(vmaCreateImage(sVkAllocator,
         &createInfo, &allocInfo, &outImage.image, &outImage.allocation, nullptr));
@@ -1208,15 +1219,12 @@ bool createImage(uint32_t width, uint32_t height,
     if (!outImage.view)
         return false;
 
+    sSetObjectName((uint64_t)outImage.image, VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, imageName);
+    outImage.imageName = imageName;
     outImage.width = width;
     outImage.height = height;
-
-    //MyVulkan::setObjectName((u64)outImage.image, VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, imageName);
-    //outImage.imageName = imageName;
-    //outImage.width = width;
-    //outImage.height = height;
-    //outImage.format = format;
-    //outImage.layout = createInfo.initialLayout;
+    outImage.format = createInfo.format;
+    outImage.layout = createInfo.initialLayout;
     return true;
 }
 void destroyImage(Image& image)
@@ -1232,16 +1240,16 @@ void destroyImage(Image& image)
 
 
 VkImageMemoryBarrier imageBarrier(Image& image,
-    VkAccessFlags dstAccessMask, VkImageLayout newLayout)
+    uint32_t dstAccessMask, VkImageLayout newLayout)
 {
     return imageBarrier(image,
-        (VkAccessFlags)image.accessMask, (VkImageLayout)image.layout,
-        (VkAccessFlags)dstAccessMask, (VkImageLayout)newLayout);
+        image.accessMask, (VkImageLayout)image.layout,
+        dstAccessMask, (VkImageLayout)newLayout);
 }
 
 VkImageMemoryBarrier imageBarrier(Image& image,
-    VkAccessFlags srcAccessMask, VkImageLayout oldLayout,
-    VkAccessFlags dstAccessMask, VkImageLayout newLayout)
+    uint32_t srcAccessMask, VkImageLayout oldLayout,
+    uint32_t dstAccessMask, VkImageLayout newLayout)
 {
     VkImageAspectFlags aspectMask = sGetAspectMaskFromFormat((VkFormat)image.format);
     VkImageMemoryBarrier barrier =
@@ -1252,9 +1260,9 @@ VkImageMemoryBarrier imageBarrier(Image& image,
 }
 
 VkImageMemoryBarrier imageBarrier(VkImage image,
-    VkAccessFlags srcAccessMask, VkImageLayout oldLayout,
-    VkAccessFlags dstAccessMask, VkImageLayout newLayout,
-    int64_t aspectMask)
+    uint32_t srcAccessMask, VkImageLayout oldLayout,
+    uint32_t dstAccessMask, VkImageLayout newLayout,
+    uint32_t aspectMask)
 {
     if (srcAccessMask == dstAccessMask && oldLayout == newLayout)
         return VkImageMemoryBarrier{};
@@ -1651,6 +1659,7 @@ bool presentImage(Image& imageToPresent)
         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
         VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1, &presentBarrier);
 */
+    /*
     {
         // Need to figure out what is the proper barriers for transfering an image from
         // copy target to present
@@ -1676,6 +1685,7 @@ bool presentImage(Image& imageToPresent)
         dep2.pImageMemoryBarriers = &presentBarrier;
         vkCmdPipelineBarrier2(commandBuffer, &dep2);
     }
+    */
     VK_CHECK_CALL(vkEndCommandBuffer(commandBuffer));
 
 
@@ -1686,9 +1696,14 @@ bool presentImage(Image& imageToPresent)
     {
         //VkPipelineStageFlags submitStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT; //VK_PIPELINE_STAGE_TRANSFER_BIT;
         //VkPipelineStageFlags submitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; //VK_PIPELINE_STAGE_TRANSFER_BIT;
-        VkPipelineStageFlags submitStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT; // VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+        //VkPipelineStageFlags submitStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT; // VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
 
         vkResetFences(device, 1, &sVkFences[frameIndex]);
+
+        VkSemaphore acquireSemaphore = sVkAcquireSemaphores[frameIndex];
+        VkSemaphore releaseSemaphore = sVkReleaseSemaphores[frameIndex];
+
+        /*
 
         VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
         submitInfo.waitSemaphoreCount = 1;
@@ -1697,12 +1712,54 @@ bool presentImage(Image& imageToPresent)
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &commandBuffer;
         submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores = &sVkReleaseSemaphores[frameIndex];
+        submitInfo.pSignalSemaphores = &releaseSemaphore;
         VK_CHECK_CALL(vkQueueSubmit(sVkQueue, 1, &submitInfo, sVkFences[frameIndex]));
+
+
+
 
         VkPresentInfoKHR presentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
         presentInfo.waitSemaphoreCount = 1;
         presentInfo.pWaitSemaphores = &sVkReleaseSemaphores[frameIndex];
+        presentInfo.swapchainCount = 1;
+        presentInfo.pSwapchains = &sVkSwapchain;
+        presentInfo.pImageIndices = &sVkImageIndex;
+
+*/
+
+        VkCommandBufferSubmitInfo commandBufferSubmitInfo = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+            .commandBuffer = commandBuffer,
+        };
+
+
+        VkSemaphoreSubmitInfo acquireCompleteInfo = {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore = acquireSemaphore,
+            .stageMask = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL };
+
+        VkSemaphoreSubmitInfo renderingCompleteInfo = {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+            .semaphore = releaseSemaphore,
+            .stageMask = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR };
+
+        VkSubmitInfo2 submitInfo = {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+            .waitSemaphoreInfoCount = 1,
+            .pWaitSemaphoreInfos = &acquireCompleteInfo,
+            .commandBufferInfoCount = 1,
+            .pCommandBufferInfos = &commandBufferSubmitInfo,
+            .signalSemaphoreInfoCount = 1,
+            .pSignalSemaphoreInfos = &renderingCompleteInfo
+        };
+
+
+
+        vkQueueSubmit2(sVkQueue, 1, &submitInfo, sVkFences[frameIndex]);
+
+        VkPresentInfoKHR presentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+        presentInfo.waitSemaphoreCount = 1;
+        presentInfo.pWaitSemaphores = &releaseSemaphore;
         presentInfo.swapchainCount = 1;
         presentInfo.pSwapchains = &sVkSwapchain;
         presentInfo.pImageIndices = &sVkImageIndex;
