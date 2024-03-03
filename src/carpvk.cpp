@@ -1,8 +1,10 @@
-#include "carpvk.h"
 #include <stdio.h>
 #include <string.h>
 
 #include <vulkan/vulkan_core.h>
+
+#include "carpvk.h"
+
 #define VMA_IMPLEMENTATION
 
 #ifdef __clang__
@@ -111,9 +113,11 @@ static const VkValidationFeatureEnableEXT sEnabledValidationFeatures[] =
 static const char* sDeviceExtensions[] =
 {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-    VK_EXT_SHADER_OBJECT_EXTENSION_NAME,
+    // Cannot use, renderdoc stops working
+    // VK_EXT_SHADER_OBJECT_EXTENSION_NAME,
+    // VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME,
 
-    VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME,
+    //VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME,
 
     // VK_KHR_MAINTENANCE1_EXTENSION_NAME
     // VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME
@@ -158,6 +162,38 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL sDebugReportCB(
         ASSERT(!"Validation error encountered!");
     }
     return VK_FALSE;
+}
+
+
+static VkImageAspectFlags sGetAspectMaskFromFormat(VkFormat format)
+{
+    VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+
+    switch(format)
+    {
+        case VK_FORMAT_D32_SFLOAT:
+        case VK_FORMAT_D32_SFLOAT_S8_UINT:
+        case VK_FORMAT_D24_UNORM_S8_UINT:
+        case VK_FORMAT_X8_D24_UNORM_PACK32:
+        case VK_FORMAT_D16_UNORM:
+        case VK_FORMAT_D16_UNORM_S8_UINT:
+        {
+            aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+            break;
+        }
+
+        case VK_FORMAT_UNDEFINED:
+        {
+            ASSERT(!"Undefined format");
+            aspectMask = VK_IMAGE_ASPECT_FLAG_BITS_MAX_ENUM;
+        }
+
+        default:
+        {
+            break;
+        }
+    }
+    return aspectMask;
 }
 
 
@@ -248,6 +284,7 @@ static VkCommandPool sCreateCommandPool(CarpVk& carpVk)
     u32 familyIndex = carpVk.queueIndex;
     VkCommandPoolCreateInfo poolCreateInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
     poolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    //poolCreateInfo.flags = 0; //VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     poolCreateInfo.queueFamilyIndex = familyIndex;
 
     VkCommandPool commandPool = {};
@@ -757,7 +794,8 @@ bool createDeviceWithQueues(CarpVk& carpVk, VulkanInstanceBuilder& builder)
 
     static constexpr VkPhysicalDeviceVulkan13Features deviceFeatures13 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-        .pNext = (void *) &shaderObjectFeature,
+        .pNext = nullptr, //(void *) &shaderObjectFeature,
+        .synchronization2 = VK_TRUE,
         .dynamicRendering = VK_TRUE,
     };
 
@@ -896,8 +934,8 @@ bool createSwapchain(CarpVk& carpVk, VSyncType vsyncMode, int width, int height)
         createInfo.imageExtent = extent;
         createInfo.imageArrayLayers = 1;
         createInfo.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT
-            | VK_IMAGE_USAGE_SAMPLED_BIT
-            | VK_IMAGE_USAGE_STORAGE_BIT
+            //| VK_IMAGE_USAGE_SAMPLED_BIT
+            //| VK_IMAGE_USAGE_STORAGE_BIT
             | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; // | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         createInfo.oldSwapchain = carpVk.swapchain;
 
@@ -1035,6 +1073,167 @@ bool finalizeInit(CarpVk& carpVk)
         }
     }
 
+
+    return true;
+}
+
+
+
+
+
+
+
+
+
+
+
+VkImageView_T* createImageView(CarpVk& carpVk, VkImage_T* image, int64_t format)
+{
+    VkImageAspectFlags aspectMask = sGetAspectMaskFromFormat((VkFormat)format);
+
+    VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+    createInfo.image = image;
+    createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    createInfo.format = (VkFormat)format;
+
+    //createInfo.components.r = VK_COMPONENT_SWIZZLE_R; // VK_COMPONENT_SWIZZLE_IDENTITY;
+    //createInfo.components.g = VK_COMPONENT_SWIZZLE_G; //VK_COMPONENT_SWIZZLE_IDENTITY;
+    //createInfo.components.b = VK_COMPONENT_SWIZZLE_B; //VK_COMPONENT_SWIZZLE_IDENTITY;
+    //createInfo.components.a = VK_COMPONENT_SWIZZLE_A; //VK_COMPONENT_SWIZZLE_IDENTITY;
+
+    createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+    createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+    createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+    createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+
+    createInfo.subresourceRange.aspectMask = aspectMask;
+    createInfo.subresourceRange.baseMipLevel = 0;
+    createInfo.subresourceRange.levelCount = 1;
+    createInfo.subresourceRange.baseArrayLayer = 0;
+    createInfo.subresourceRange.layerCount = 1;
+
+    VkImageView view = {};
+    VK_CHECK_CALL(vkCreateImageView(carpVk.device, &createInfo, nullptr, &view));
+
+    ASSERT(view);
+    return view;
+}
+
+
+bool createImage(CarpVk& carpVk,
+    uint32_t width, uint32_t height,
+    int64_t imageFormat, int64_t usage,
+    Image& outImage)
+{
+    VkImageCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+    createInfo.imageType = VK_IMAGE_TYPE_2D;
+    createInfo.format = (VkFormat)imageFormat;
+    createInfo.extent = { width, height, 1 };
+    createInfo.mipLevels = 1;
+    createInfo.arrayLayers = 1;
+    createInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    createInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    createInfo.usage = (VkImageUsageFlags)usage;
+    createInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    createInfo.queueFamilyIndexCount = 1;
+    uint32_t indices[] = { (uint32_t)carpVk.queueIndex };
+    createInfo.pQueueFamilyIndices = indices;
+
+    VmaAllocationCreateInfo allocInfo = {};
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+
+    outImage.format = imageFormat;
+    outImage.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    VK_CHECK_CALL(vmaCreateImage(carpVk.allocator,
+        &createInfo, &allocInfo, &outImage.image, &outImage.allocation, nullptr));
+
+    ASSERT(outImage.image && outImage.allocation);
+
+    if (!outImage.image || !outImage.allocation)
+        return false;
+
+    outImage.view = createImageView(carpVk, outImage.image, (VkFormat)imageFormat);
+    ASSERT(outImage.view);
+    if (!outImage.view)
+        return false;
+
+    //MyVulkan::setObjectName((u64)outImage.image, VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, imageName);
+    //outImage.imageName = imageName;
+    //outImage.width = width;
+    //outImage.height = height;
+    //outImage.format = format;
+    //outImage.layout = createInfo.initialLayout;
+    return true;
+}
+void destroyImage(CarpVk& carpVk, Image& image)
+{
+    if (image.view)
+        vkDestroyImageView(carpVk.device, image.view, nullptr);
+    if (image.image)
+        vmaDestroyImage(carpVk.allocator, image.image, image.allocation);
+    image = Image{};
+}
+
+
+
+
+VkImageMemoryBarrier imageBarrier(Image& image,
+    VkAccessFlags dstAccessMask, VkImageLayout newLayout)
+{
+    return imageBarrier(image,
+        (VkAccessFlags)image.accessMask, (VkImageLayout)image.layout,
+        (VkAccessFlags)dstAccessMask, (VkImageLayout)newLayout);
+}
+
+VkImageMemoryBarrier imageBarrier(Image& image,
+    VkAccessFlags srcAccessMask, VkImageLayout oldLayout,
+    VkAccessFlags dstAccessMask, VkImageLayout newLayout)
+{
+    VkImageAspectFlags aspectMask = sGetAspectMaskFromFormat((VkFormat)image.format);
+    VkImageMemoryBarrier barrier =
+        imageBarrier(image.image, srcAccessMask, oldLayout, dstAccessMask, newLayout, aspectMask);
+    image.accessMask = dstAccessMask;
+    image.layout = newLayout;
+    return barrier;
+}
+
+VkImageMemoryBarrier imageBarrier(VkImage image,
+    VkAccessFlags srcAccessMask, VkImageLayout oldLayout,
+    VkAccessFlags dstAccessMask, VkImageLayout newLayout,
+    int64_t aspectMask)
+{
+    if (srcAccessMask == dstAccessMask && oldLayout == newLayout)
+        return VkImageMemoryBarrier{};
+
+    VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+    barrier.srcAccessMask = srcAccessMask;
+    barrier.dstAccessMask = dstAccessMask;
+    barrier.oldLayout = oldLayout;
+    barrier.newLayout = newLayout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.aspectMask = aspectMask;
+    // Andoird error?
+    barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+    barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+    return barrier;
+}
+
+
+bool createShader(CarpVk& carpVk,
+    const char* code, int codeSize, VkShaderModule& outModule)
+{
+    VkShaderModuleCreateInfo createInfo = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
+    createInfo.codeSize = codeSize;
+    createInfo.pCode = (uint32_t*)code;
+    VK_CHECK_CALL(vkCreateShaderModule(carpVk.device, &createInfo, nullptr, &outModule));
+    ASSERT(outModule);
+    if (!outModule)
+        return false;
 
     return true;
 }

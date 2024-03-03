@@ -17,8 +17,19 @@ struct VkSemaphore_T;
 struct VkFence_T;
 struct VkCommandPool_T;
 struct VkCommandBuffer_T;
-struct VmaAllocator_T;
 
+struct VmaAllocator_T;
+struct VmaAllocation_T;
+
+struct Image
+{
+    VkImage_T* image = nullptr;
+    VkImageView_T* view = nullptr;
+    VmaAllocation_T* allocation = nullptr;
+    int64_t format = 0;
+    int64_t layout = 0;
+    int64_t accessMask = 0;
+};
 
 
 struct alignas(sizeof(char*)) VulkanInstanceBuilder
@@ -80,7 +91,7 @@ struct CarpVk
     FnDestroyBuffers destroyBuffers = nullptr;
     void* destroyBuffersData = nullptr;
 
-    int64_t frameIndex = 0;
+    int64_t frameIndex = -1;
 
     int queueIndex = -1;
     int swapchainCount = 0;
@@ -115,3 +126,47 @@ bool createDeviceWithQueues(CarpVk& carpVk, VulkanInstanceBuilder& builder);
 bool createSwapchain(CarpVk& carpVk, VSyncType vsyncMode, int width, int height);
 
 bool finalizeInit(CarpVk& carpVk);
+VkImageView_T* createImageView(CarpVk& carpVk, VkImage_T* image, int64_t format);
+bool createImage(CarpVk& carpVk,
+    uint32_t width, uint32_t height,
+    int64_t imageFormat, int64_t usage,
+    Image& outImage);
+
+void destroyImage(CarpVk& carpVk, Image& image);
+
+
+VkImageMemoryBarrier imageBarrier(Image& image,
+    VkAccessFlags dstAccessMask, VkImageLayout newLayout);
+
+VkImageMemoryBarrier imageBarrier(Image& image,
+    VkAccessFlags srcAccessMask, VkImageLayout oldLayout,
+    VkAccessFlags dstAccessMask, VkImageLayout newLayout);
+
+VkImageMemoryBarrier imageBarrier(VkImage_T* image,
+    VkAccessFlags srcAccessMask, VkImageLayout oldLayout,
+    VkAccessFlags dstAccessMask, VkImageLayout newLayout,
+    int64_t aspectMask);
+
+
+struct GPBuilder
+{
+    const VkPipelineShaderStageCreateInfo* stageInfos = {};
+    const VkFormat* colorFormats = {};
+    const VkPipelineColorBlendAttachmentState* blendChannels = {};
+    VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
+    VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkCompareOp depthCompareOp = VK_COMPARE_OP_LESS;
+    int stageInfoCount = 0;
+    uint32_t colorFormatCount = 0;
+    uint32_t blendChannelCount = 0;
+
+    bool depthTest = false;
+    bool writeDepth = false;
+
+};
+
+
+bool createShader(CarpVk& carpVk, const char* code, int codeSize, VkShaderModule& outModule);
+
+
+
