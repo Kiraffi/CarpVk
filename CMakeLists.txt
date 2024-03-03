@@ -33,12 +33,8 @@ target_link_libraries(carpvk PUBLIC
     GPUOpen::VulkanMemoryAllocator
     Vulkan::Vulkan
 )
-add_executable(carpvktest src/main.cpp)
 
 
 
 target_include_directories(carpvk PUBLIC src)
 
-target_link_libraries(carpvktest PRIVATE
-    carpvk
-)
