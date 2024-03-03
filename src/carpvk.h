@@ -40,9 +40,10 @@ struct Image
     VkImageView_T* view = {};
     VmaAllocation_T* allocation = {};
     const char* imageName = {};
-    VkFormat format = {};
+    uint64_t stageMask = 0;
+    uint64_t accessMask = 0;
     VkImageLayout layout = {};
-    uint32_t accessMask = 0;
+    VkFormat format = {};
     int32_t width = 0;
     int32_t height = 0;
 };
@@ -155,16 +156,16 @@ bool createImage(uint32_t width, uint32_t height,
 void destroyImage(Image& image);
 
 
-VkImageMemoryBarrier imageBarrier(Image& image,
-    uint32_t dstAccessMask, VkImageLayout newLayout);
+VkImageMemoryBarrier2 imageBarrier(Image &image,
+    uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout);
 
-VkImageMemoryBarrier imageBarrier(Image& image,
-    uint32_t srcAccessMask, VkImageLayout oldLayout,
-    uint32_t dstAccessMask, VkImageLayout newLayout);
+VkImageMemoryBarrier2 imageBarrier(Image &image,
+    uint64_t srcStageMask, uint64_t srcAccessMask, VkImageLayout oldLayout,
+    uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout);
 
-VkImageMemoryBarrier imageBarrier(VkImage_T* image,
-    uint32_t srcAccessMask, VkImageLayout oldLayout,
-    uint32_t dstAccessMask, VkImageLayout newLayout,
+VkImageMemoryBarrier2 imageBarrier(VkImage_T* image,
+    uint64_t srcStageMask, uint64_t srcAccessMask, VkImageLayout oldLayout,
+    uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout,
     uint32_t aspectMask);
 
 
@@ -213,7 +214,7 @@ VkCommandBuffer_T* getVkCommandBuffer();
 const CarpSwapChainFormats& getSwapChainFormats();
 
 
-VkPipeline_T* createGraphicsPipeline(const GPBuilder& builder);
+VkPipeline_T* createGraphicsPipeline(const GPBuilder& builder, const char *pipelineName);
 
 
 bool beginFrame();

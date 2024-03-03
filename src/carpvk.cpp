@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <vector>
 
 #include <vulkan/vulkan_core.h>
 
@@ -77,7 +78,8 @@ static PFN_vkCmdDebugMarkerInsertEXT cmdDebugMarkerInsert = nullptr;
 
 
 
-
+static std::vector<Image*> allImages;
+static std::vector<Image*> allRenderTargetImages;
 
 
 
@@ -133,12 +135,12 @@ static constexpr u32 sFormatFlagBits =
     VK_FORMAT_FEATURE_BLIT_DST_BIT |
     VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
     VK_FORMAT_FEATURE_TRANSFER_DST_BIT |
-    VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT |
-    VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+    VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+    VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
 
 static constexpr SwapChainFormats sDefaultPresent[] = {
-    { VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_D32_SFLOAT, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
-    { VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_D32_SFLOAT, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
+    { VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_D32_SFLOAT, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
+    { VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_D32_SFLOAT, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR },
     { VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_FORMAT_D32_SFLOAT, VK_COLOR_SPACE_HDR10_ST2084_EXT },
 };
 
@@ -289,7 +291,7 @@ static SwapChainSupportDetails sQuerySwapChainSupport(VkPhysicalDevice physicalD
     return details;
 }
 
-// Returns index that has all bits and supports present.
+// Returns index that has all bits (graphics, compute and transfer) and supports present.
 static int sFindQueueFamilies(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
 {
     u32 queueFamilyCount = 0;
@@ -648,12 +650,12 @@ bool createPhysicalDevice(bool useIntegratedGpu)
     VkPhysicalDeviceType wantedDeviceType = useIntegratedGpu
         ? VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
         : VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
-
-    VkPhysicalDevice devices[256] = {};
+    static const int DeviceMaxCount = 16;
+    VkPhysicalDevice devices[DeviceMaxCount] = {};
     u32 count = 0;
 
     VK_CHECK_CALL(vkEnumeratePhysicalDevices(sVkInstance, &count, nullptr));
-    ASSERT(count < 256);
+    ASSERT(count < DeviceMaxCount);
     VK_CHECK_CALL(vkEnumeratePhysicalDevices(sVkInstance, &count, devices));
 
     VkPhysicalDevice primary = nullptr;
@@ -696,18 +698,19 @@ bool createPhysicalDevice(bool useIntegratedGpu)
             continue;
         }
         u32 formatIndex = ~0u;
-
-        for (u32 j = 0; j < ARRAYSIZES(sDefaultFormats); ++j)
+        
+        for (u32 j = 0; j < ARRAYSIZES(sDefaultPresent); ++j)
         {
             VkFormatProperties formatProperties;
-            vkGetPhysicalDeviceFormatProperties(physicalDevice, sDefaultFormats[j].color, &formatProperties);
+            
+            vkGetPhysicalDeviceFormatProperties(physicalDevice, sDefaultPresent[j].color, &formatProperties);
             if(((formatProperties.optimalTilingFeatures) & sFormatFlagBits) == sFormatFlagBits)
             {
                 formatIndex = j;
                 break;
             }
         }
-
+        
         if(formatIndex == ~0u)
         {
             printf("No render target format found: %s\n", prop.deviceName);
@@ -791,6 +794,8 @@ bool createPhysicalDevice(bool useIntegratedGpu)
 
 bool createDeviceWithQueues(VulkanInstanceBuilder& builder)
 {
+    VulkanInstanceBuilderImpl *casted = sGetBuilderCasted(builder);
+
     SwapChainSupportDetails swapChainSupport = sQuerySwapChainSupport(sVkPhysicalDevice, sVkSurface);
     bool swapChainAdequate = swapChainSupport.formatCount > 0 && swapChainSupport.presentModeCount > 0;
     if(!swapChainAdequate)
@@ -801,8 +806,7 @@ bool createDeviceWithQueues(VulkanInstanceBuilder& builder)
     sVkSwapchainFormats.colorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
     sVkSwapchainFormats.defaultColorFormat = VK_FORMAT_UNDEFINED;
 
-    for(u32 i = 0; i < swapChainSupport.formatCount
-    && sVkSwapchainFormats.presentColorFormat == VK_FORMAT_UNDEFINED; ++i)
+    for(u32 i = 0; i < swapChainSupport.formatCount && sVkSwapchainFormats.presentColorFormat == VK_FORMAT_UNDEFINED; ++i)
     {
         for (const auto& format : sDefaultPresent)
         {
@@ -813,8 +817,10 @@ bool createDeviceWithQueues(VulkanInstanceBuilder& builder)
             sVkSwapchainFormats.presentColorFormat = format.color;
             sVkSwapchainFormats.depthFormat = format.depth;
             sVkSwapchainFormats.colorSpace = format.colorSpace;
+            goto FoundSwapChain;
         }
     }
+FoundSwapChain:
 
     if(sVkSwapchainFormats.presentColorFormat == VK_FORMAT_UNDEFINED
        && swapChainSupport.formatCount == 1
@@ -829,6 +835,20 @@ bool createDeviceWithQueues(VulkanInstanceBuilder& builder)
     {
         return false;
     }
+    /*
+    VkPhysicalDeviceImageFormatInfo2 imageFormatInfo = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2,
+        .format = sVkSwapchainFormats.presentColorFormat,
+        .type = VK_IMAGE_TYPE_2D,
+        .tiling = VK_IMAGE_TILING_OPTIMAL,
+        .usage = sFormatFlagBits,
+    };
+
+    VkImageFormatProperties2 imageFormatProperties = { .sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2 };
+    VkResult result = vkGetPhysicalDeviceImageFormatProperties2(sVkPhysicalDevice, &imageFormatInfo, &imageFormatProperties);
+    */
+
+    // Find image format that works both compute and graphics
     for (const auto &format : sDefaultFormats)
     {
         VkFormatProperties formatProperties;
@@ -891,7 +911,7 @@ bool createDeviceWithQueues(VulkanInstanceBuilder& builder)
     createInfo.enabledExtensionCount = ARRAYSIZES(sDeviceExtensions);
     createInfo.ppEnabledExtensionNames = sDeviceExtensions;
 
-    VulkanInstanceBuilderImpl *casted =  sGetBuilderCasted(builder);
+
     createInfo.ppEnabledLayerNames = casted->m_createInfo.ppEnabledLayerNames;
     createInfo.enabledLayerCount = casted->m_createInfo.enabledLayerCount;
 
@@ -1235,6 +1255,15 @@ bool createImage(uint32_t width, uint32_t height,
     outImage.height = height;
     outImage.format = createInfo.format;
     outImage.layout = createInfo.initialLayout;
+
+    if((usage & (VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)) != 0)
+    {
+        allRenderTargetImages.push_back(&outImage);
+    }
+    else
+    {
+        allImages.push_back(&outImage);
+    }
     return true;
 }
 void destroyImage(Image& image)
@@ -1249,41 +1278,45 @@ void destroyImage(Image& image)
 
 
 
-VkImageMemoryBarrier imageBarrier(Image& image,
-    uint32_t dstAccessMask, VkImageLayout newLayout)
+VkImageMemoryBarrier2 imageBarrier(Image& image,
+    uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout)
 {
     return imageBarrier(image,
-        image.accessMask, (VkImageLayout)image.layout,
-        dstAccessMask, (VkImageLayout)newLayout);
+        image.stageMask, image.accessMask, image.layout,
+        dstStageMask, dstAccessMask, newLayout);
 }
 
-VkImageMemoryBarrier imageBarrier(Image& image,
-    uint32_t srcAccessMask, VkImageLayout oldLayout,
-    uint32_t dstAccessMask, VkImageLayout newLayout)
+VkImageMemoryBarrier2 imageBarrier(Image& image,
+    uint64_t srcStageMask, uint64_t srcAccessMask, VkImageLayout oldLayout,
+    uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout)
 {
     VkImageAspectFlags aspectMask = sGetAspectMaskFromFormat((VkFormat)image.format);
-    VkImageMemoryBarrier barrier =
-        imageBarrier(image.image, srcAccessMask, oldLayout, dstAccessMask, newLayout, aspectMask);
+    VkImageMemoryBarrier2 barrier =
+        imageBarrier(image.image, srcStageMask, srcAccessMask, oldLayout,
+            dstStageMask, dstAccessMask, newLayout, aspectMask);
+    image.stageMask = dstStageMask;
     image.accessMask = dstAccessMask;
     image.layout = newLayout;
     return barrier;
 }
 
-VkImageMemoryBarrier imageBarrier(VkImage image,
-    uint32_t srcAccessMask, VkImageLayout oldLayout,
-    uint32_t dstAccessMask, VkImageLayout newLayout,
+VkImageMemoryBarrier2 imageBarrier(VkImage image,
+    uint64_t srcStageMask, uint64_t srcAccessMask, VkImageLayout oldLayout,
+    uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout,
     uint32_t aspectMask)
 {
     if (srcAccessMask == dstAccessMask && oldLayout == newLayout)
-        return VkImageMemoryBarrier{};
+        return VkImageMemoryBarrier2{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
 
-    VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+    VkImageMemoryBarrier2 barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
     barrier.srcAccessMask = srcAccessMask;
     barrier.dstAccessMask = dstAccessMask;
+    barrier.srcStageMask = srcStageMask;
+    barrier.dstStageMask = dstStageMask;
     barrier.oldLayout = oldLayout;
     barrier.newLayout = newLayout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.srcQueueFamilyIndex = sVkQueueIndex;
+    barrier.dstQueueFamilyIndex = sVkQueueIndex;
     barrier.image = image;
     barrier.subresourceRange.baseMipLevel = 0;
     barrier.subresourceRange.aspectMask = aspectMask;
@@ -1410,7 +1443,7 @@ const CarpSwapChainFormats& getSwapChainFormats()
 
 
 
-VkPipeline_T* createGraphicsPipeline(const GPBuilder& builder)
+VkPipeline_T* createGraphicsPipeline(const GPBuilder& builder, const char* pipelineName)
 {
     VkDevice device = getVkDevice();
 
@@ -1497,7 +1530,7 @@ VkPipeline_T* createGraphicsPipeline(const GPBuilder& builder)
         return false;
     }
      */
-     //setObjectName((uint64_t)pipeline, VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT, pipelineName);
+     sSetObjectName((uint64_t)pipeline, VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT, pipelineName);
 
     return pipeline;
 }
@@ -1522,15 +1555,6 @@ bool beginFrame()
 
 
 
-    VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-    vkResetCommandPool(sVkDevice, sVkCommandPools[frameIndex], 0);
-    VkCommandBuffer commandBuffer = getVkCommandBuffer();
-    //vkResetCommandBuffer(commandBuffer, 0);
-    VK_CHECK_CALL(vkBeginCommandBuffer(commandBuffer, &beginInfo));
-
-
     //vulk->scratchBufferOffset = vulk->frameIndex * 32u * 1024u * 1024u;
     //vulk->scratchBufferLastFlush = vulk->scratchBufferOffset;
     //vulk->scratchBufferMaxOffset = (vulk->frameIndex + 1) * 32u * 1024u * 1024u;
@@ -1549,6 +1573,27 @@ bool beginFrame()
     //    return false;
     //}
 
+    VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkResetCommandPool(sVkDevice, sVkCommandPools[frameIndex], 0);
+    VkCommandBuffer commandBuffer = getVkCommandBuffer();
+    VK_CHECK_CALL(vkBeginCommandBuffer(commandBuffer, &beginInfo));
+
+    for(Image* image : allRenderTargetImages)
+    {
+        image->stageMask = VK_PIPELINE_STAGE_2_NONE;
+        image->accessMask = VK_ACCESS_2_NONE;
+        image->layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    }
+    
+
+
+    //vkCmdResetQueryPool(vulk->commandBuffer, vulk->queryPools[vulk->frameIndex], 0, QUERY_COUNT);
+    //vulk->currentStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+
+
+
     return true;
 
 }
@@ -1563,26 +1608,9 @@ bool presentImage(Image& imageToPresent)
 
     VkImage swapchainImage = sVkSwapchainImages[sVkImageIndex];
 
-    /*
-    VkImageMemoryBarrier copyBeginBarriers[] =
-        {
-            imageBarrier(state.image,
-                VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL),
-
-            imageBarrier(swapchainImage,
-                0, VK_IMAGE_LAYOUT_UNDEFINED,
-                VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                VK_IMAGE_ASPECT_COLOR_BIT)
-        };
-
-//    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-    vkCmdPipelineBarrier(commandBuffer,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, ARRAYSIZES(copyBeginBarriers), copyBeginBarriers);
-*/
+    // Blit from imageToPresent to swapchain
     {
-        VkImageMemoryBarrier2 imageMemoryBarriers[2] = {
+        VkImageMemoryBarrier2 imageMemoryBarriers[] = {
             {
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
                 .dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT_KHR,
@@ -1595,95 +1623,63 @@ bool presentImage(Image& imageToPresent)
                     .layerCount = 1,
                 }
             },
-
-            {
-                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
-                .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, //  VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-                .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-                .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT, //  VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
-                .dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
-                .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                .image = imageToPresent.image,
-                .subresourceRange = {
-                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                    .levelCount = 1,
-                    .layerCount = 1,
-                }
-            }
+            imageBarrier(imageToPresent,
+                VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                VK_ACCESS_2_TRANSFER_READ_BIT,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL),
         };
 
-        VkDependencyInfoKHR dep2 = {};
-        dep2.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR;
-        dep2.imageMemoryBarrierCount = 2;
-        dep2.pImageMemoryBarriers = imageMemoryBarriers;
+        VkDependencyInfoKHR dependencyInfo = {};
+        dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR;
+        dependencyInfo.imageMemoryBarrierCount = ARRAYSIZES(imageMemoryBarriers);
+        dependencyInfo.pImageMemoryBarriers = imageMemoryBarriers;
 
-        vkCmdPipelineBarrier2(commandBuffer, &dep2);
-
-    }
+        vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
 
 
 
+        int width = imageToPresent.width;
+        int height = imageToPresent.height;
 
-    int width = imageToPresent.width;
-    int height = imageToPresent.height;
-
-    VkImageBlit2 imageBlitRegion = {
-        .sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2,
-        .srcSubresource = {
-            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-            .layerCount = 1,
+        VkImageBlit2 imageBlitRegion = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2,
+            .srcSubresource = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .layerCount = 1,
         },
         .srcOffsets = {
-            VkOffset3D{ 0, 0, 0 },
-            VkOffset3D{ width, height, 1 },
+                VkOffset3D{ 0, 0, 0 },
+                VkOffset3D{ width, height, 1 },
         },
 
         .dstSubresource = {
-            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-            .layerCount = 1,
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .layerCount = 1,
         },
         .dstOffsets = {
-            VkOffset3D{ 0, 0, 0 },
-            VkOffset3D{ width, height, 1 },
+                VkOffset3D{ 0, 0, 0 },
+                VkOffset3D{ width, height, 1 },
         }
 
 
-    };
+        };
 
-    VkBlitImageInfo2 imageBlitInfo = {
-        .sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2,
-        .srcImage = imageToPresent.image,
-        .srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        .dstImage = swapchainImage,
-        .dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        .regionCount = 1,
-        .pRegions = &imageBlitRegion,
-        .filter = VkFilter::VK_FILTER_NEAREST,
-    };
+        VkBlitImageInfo2 imageBlitInfo = {
+            .sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2,
+            .srcImage = imageToPresent.image,
+            .srcImageLayout = imageToPresent.layout,
+            .dstImage = swapchainImage,
+            .dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .regionCount = 1,
+            .pRegions = &imageBlitRegion,
+            .filter = VkFilter::VK_FILTER_NEAREST,
+        };
 
+        vkCmdBlitImage2(commandBuffer, &imageBlitInfo);
+    }
 
-    vkCmdBlitImage2(commandBuffer, &imageBlitInfo);
-    //state.image.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-    //swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &imageBlitRegion, VkFilter::VK_FILTER_NEAREST);
-
-
-// Prepare image for presenting.
-/*
-    VkImageMemoryBarrier presentBarrier =
-        imageBarrier(swapchainImage,
-            VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            0, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-            VK_IMAGE_ASPECT_COLOR_BIT);
-
-    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-        VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1, &presentBarrier);
-*/
-
+    // Prepare image for presenting.
     {
-        // Need to figure out what is the proper barriers for transfering an image from
-        // copy target to present
         VkImageMemoryBarrier2 presentBarrier = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
             .srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT_KHR,
@@ -1715,38 +1711,10 @@ bool presentImage(Image& imageToPresent)
 
     // Submit
     {
-        //VkPipelineStageFlags submitStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT; //VK_PIPELINE_STAGE_TRANSFER_BIT;
-        //VkPipelineStageFlags submitStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; //VK_PIPELINE_STAGE_TRANSFER_BIT;
-        //VkPipelineStageFlags submitStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT; // VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-
         vkResetFences(device, 1, &sVkFences[frameIndex]);
 
         VkSemaphore acquireSemaphore = sVkAcquireSemaphores[frameIndex];
         VkSemaphore releaseSemaphore = sVkReleaseSemaphores[frameIndex];
-
-        /*
-
-        VkSubmitInfo submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-        submitInfo.waitSemaphoreCount = 1;
-        submitInfo.pWaitSemaphores = &sVkAcquireSemaphores[frameIndex];
-        submitInfo.pWaitDstStageMask = &submitStageMask;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &commandBuffer;
-        submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores = &releaseSemaphore;
-        VK_CHECK_CALL(vkQueueSubmit(sVkQueue, 1, &submitInfo, sVkFences[frameIndex]));
-
-
-
-
-        VkPresentInfoKHR presentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-        presentInfo.waitSemaphoreCount = 1;
-        presentInfo.pWaitSemaphores = &sVkReleaseSemaphores[frameIndex];
-        presentInfo.swapchainCount = 1;
-        presentInfo.pSwapchains = &sVkSwapchain;
-        presentInfo.pImageIndices = &sVkImageIndex;
-
-*/
 
         VkCommandBufferSubmitInfo commandBufferSubmitInfo = {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
@@ -1800,6 +1768,6 @@ bool presentImage(Image& imageToPresent)
         }
     }
 
-    VK_CHECK_CALL(vkDeviceWaitIdle(device));
+    //VK_CHECK_CALL(vkDeviceWaitIdle(device));
     return true;
 }
