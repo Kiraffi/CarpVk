@@ -1391,6 +1391,100 @@ const CarpSwapChainFormats& getSwapChainFormats()
 }
 
 
+
+VkPipeline_T* createGraphicsPipeline(const GPBuilder& builder)
+{
+    VkDevice device = getVkDevice();
+
+    VkPipelineVertexInputStateCreateInfo vertexInfo = { .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+
+    VkPipelineInputAssemblyStateCreateInfo assemblyInfo = { .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
+    assemblyInfo.topology = builder.topology;
+    assemblyInfo.primitiveRestartEnable = VK_FALSE;
+
+    VkPipelineViewportStateCreateInfo viewportInfo = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
+    viewportInfo.scissorCount = 1;
+    viewportInfo.viewportCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterInfo = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
+    rasterInfo.lineWidth = 1.0f;
+    if (builder.topology == VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST)
+    {
+        rasterInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE; // VK_FRONT_FACE_CLOCKWISE;
+        rasterInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+    }
+    else
+    {
+        rasterInfo.cullMode = VK_CULL_MODE_NONE;
+        // notice VkPhysicalDeviceFeatures .fillModeNonSolid = VK_TRUE required
+        //rasterInfo.polygonMode = VK_POLYGON_MODE_LINE;
+    }
+    VkPipelineMultisampleStateCreateInfo multiSampleInfo = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
+    multiSampleInfo.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo depthInfo = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
+    depthInfo.depthTestEnable = builder.depthTest ? VK_TRUE : VK_FALSE;
+    depthInfo.depthWriteEnable = builder.writeDepth ? VK_TRUE : VK_FALSE;
+    depthInfo.depthCompareOp = builder.depthCompareOp;
+
+    VkPipelineColorBlendStateCreateInfo blendInfo = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .attachmentCount = builder.blendChannelCount,
+        .pAttachments = builder.blendChannels,
+    };
+
+    VkDynamicState dynamicStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+    VkPipelineDynamicStateCreateInfo dynamicInfo = { VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
+    dynamicInfo.pDynamicStates = dynamicStates;
+    dynamicInfo.dynamicStateCount = ARRAYSIZES(dynamicStates);
+
+
+    VkGraphicsPipelineCreateInfo createInfo = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
+    createInfo.stageCount = builder.stageInfoCount;
+    createInfo.pStages = builder.stageInfos;
+    createInfo.pVertexInputState = &vertexInfo;
+    createInfo.pInputAssemblyState = &assemblyInfo;
+    createInfo.pViewportState = &viewportInfo;
+    createInfo.pRasterizationState = &rasterInfo;
+    createInfo.pMultisampleState = &multiSampleInfo;
+    createInfo.pDepthStencilState = &depthInfo;
+    createInfo.pColorBlendState = &blendInfo;
+    createInfo.pDynamicState = &dynamicInfo;
+    createInfo.renderPass = VK_NULL_HANDLE;
+    createInfo.layout = builder.pipelineLayout;
+    createInfo.basePipelineHandle = VK_NULL_HANDLE;
+
+
+    //Needed for dynamic rendering
+
+    const VkPipelineRenderingCreateInfo pipelineRenderingCreateInfo{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR,
+        .colorAttachmentCount = builder.colorFormatCount,
+        .pColorAttachmentFormats = builder.colorFormats,
+        .depthAttachmentFormat = builder.depthFormat,
+    };
+
+    //if(outPipeline.renderPass == VK_NULL_HANDLE)
+    createInfo.pNext = &pipelineRenderingCreateInfo;
+
+
+    VkPipeline pipeline = 0;
+    VK_CHECK_CALL(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &createInfo, nullptr, &pipeline));
+    ASSERT(pipeline);
+
+    /*
+    if (!VulkanShader::createDescriptor(outPipeline))
+    {
+        printf("Failed to create graphics pipeline descriptor\n");
+        return false;
+    }
+     */
+     //setObjectName((uint64_t)pipeline, VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT, pipelineName);
+
+    return pipeline;
+}
+
+
 bool beginFrame()
 {
     VkDevice device = getVkDevice();

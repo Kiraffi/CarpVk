@@ -171,6 +171,8 @@ struct GPBuilder
     VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
     VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     VkCompareOp depthCompareOp = VK_COMPARE_OP_LESS;
+    VkPipelineLayout_T* pipelineLayout = {};
+    
     int stageInfoCount = 0;
     uint32_t colorFormatCount = 0;
     uint32_t blendChannelCount = 0;
@@ -204,6 +206,10 @@ VkInstance_T* getVkInstance();
 VkDevice_T* getVkDevice();
 VkCommandBuffer_T* getVkCommandBuffer();
 const CarpSwapChainFormats& getSwapChainFormats();
+
+
+VkPipeline_T* createGraphicsPipeline(const GPBuilder& builder);
+
 
 bool beginFrame();
 bool presentImage(Image& presentImage);
