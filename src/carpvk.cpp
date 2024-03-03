@@ -47,7 +47,7 @@ static VkSemaphore_T* sVkAcquireSemaphores[CarpVk::FramesInFlight] = {};
 static VkSemaphore_T* sVkReleaseSemaphores[CarpVk::FramesInFlight] = {};
 
 static VkFence_T* sVkFences[CarpVk::FramesInFlight] = {};
-static VkCommandPool_T* sVkCommandPool = {};
+static VkCommandPool_T* sVkCommandPools[CarpVk::FramesInFlight] = {};
 
 static VkCommandBuffer_T* sVkCommandBuffers[CarpVk::FramesInFlight] = {};
 
@@ -353,7 +353,7 @@ static VkCommandPool sCreateCommandPool()
 {
     u32 familyIndex = sVkQueueIndex;
     VkCommandPoolCreateInfo poolCreateInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-    poolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT; // | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     //poolCreateInfo.flags = 0; //VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     poolCreateInfo.queueFamilyIndex = familyIndex;
 
@@ -423,7 +423,14 @@ void deinitCarpVk(CarpVk& carpVk)
             carpVk.destroyBuffers(carpVk);
         }
 
-        vkDestroyCommandPool(sVkDevice, sVkCommandPool, nullptr);
+        for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+        {
+            if(sVkCommandPools[i])
+            {
+                vkDestroyCommandPool(sVkDevice, sVkCommandPools[i], nullptr);
+            }
+            sVkCommandPools[i] = {};
+        }
         sDestroySwapchain();
 
 
@@ -1108,32 +1115,35 @@ bool finalizeInit(CarpVk& carpVk)
             return false;
         }
     }
-    sVkCommandPool = sCreateCommandPool();
-    ASSERT(sVkCommandPool);
-    if(!sVkCommandPool)
+    for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
     {
-        printf("Failed to create vulkan command pool!\n");
-        return false;
-    }
-
-
-    VkCommandBufferAllocateInfo allocateInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-    allocateInfo.commandPool = sVkCommandPool;
-    allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocateInfo.commandBufferCount = CarpVk::FramesInFlight;
-
-    {
-        VK_CHECK_CALL(vkAllocateCommandBuffers(sVkDevice, &allocateInfo, sVkCommandBuffers));
-        for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+        sVkCommandPools[i] = sCreateCommandPool();
+        ASSERT(sVkCommandPools[i]);
+        if(!sVkCommandPools[i])
         {
-            if(!sVkCommandBuffers[i])
-            {
-                printf("Failed to create vulkan command buffer!\n");
-                return false;
-            }
+            printf("Failed to create vulkan command pool!\n");
+            return false;
+        }
 
-            static const char* s = "Main command buffer";
-            sSetObjectName((uint64_t)sVkCommandBuffers[i], VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT, s);
+
+        VkCommandBufferAllocateInfo allocateInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+        allocateInfo.commandPool = sVkCommandPools[i];
+        allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocateInfo.commandBufferCount = 1; // CarpVk::FramesInFlight;
+
+        {
+            VK_CHECK_CALL(vkAllocateCommandBuffers(sVkDevice, &allocateInfo, &sVkCommandBuffers[i]));
+            //for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+            {
+                if(!sVkCommandBuffers[i])
+                {
+                    printf("Failed to create vulkan command buffer!\n");
+                    return false;
+                }
+
+                static const char* s = "Main command buffer";
+                sSetObjectName((uint64_t)sVkCommandBuffers[i], VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT, s);
+            }
         }
     }
 
@@ -1510,6 +1520,17 @@ bool beginFrame()
     VkResult res = (vkAcquireNextImageKHR(device, sVkSwapchain, UINT64_MAX,
         sVkAcquireSemaphores[frameIndex], VK_NULL_HANDLE, &sVkImageIndex));
 
+
+
+    VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkResetCommandPool(sVkDevice, sVkCommandPools[frameIndex], 0);
+    VkCommandBuffer commandBuffer = getVkCommandBuffer();
+    //vkResetCommandBuffer(commandBuffer, 0);
+    VK_CHECK_CALL(vkBeginCommandBuffer(commandBuffer, &beginInfo));
+
+
     //vulk->scratchBufferOffset = vulk->frameIndex * 32u * 1024u * 1024u;
     //vulk->scratchBufferLastFlush = vulk->scratchBufferOffset;
     //vulk->scratchBufferMaxOffset = (vulk->frameIndex + 1) * 32u * 1024u * 1024u;
@@ -1659,7 +1680,7 @@ bool presentImage(Image& imageToPresent)
         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
         VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 1, &presentBarrier);
 */
-    /*
+
     {
         // Need to figure out what is the proper barriers for transfering an image from
         // copy target to present
@@ -1685,7 +1706,7 @@ bool presentImage(Image& imageToPresent)
         dep2.pImageMemoryBarriers = &presentBarrier;
         vkCmdPipelineBarrier2(commandBuffer, &dep2);
     }
-    */
+    
     VK_CHECK_CALL(vkEndCommandBuffer(commandBuffer));
 
 
@@ -1736,12 +1757,14 @@ bool presentImage(Image& imageToPresent)
         VkSemaphoreSubmitInfo acquireCompleteInfo = {
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
             .semaphore = acquireSemaphore,
-            .stageMask = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL };
+            .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
+        };
 
         VkSemaphoreSubmitInfo renderingCompleteInfo = {
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
             .semaphore = releaseSemaphore,
-            .stageMask = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR };
+            .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
+        };
 
         VkSubmitInfo2 submitInfo = {
             .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,

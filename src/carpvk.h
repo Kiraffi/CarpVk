@@ -32,6 +32,7 @@ struct VkImageMemoryBarrier_T;
 
 enum VkFormat;
 enum VkImageLayout;
+enum VkColorSpaceKHR;
 
 struct Image
 {
@@ -62,10 +63,10 @@ enum class VSyncType : unsigned char
 
 struct CarpSwapChainFormats
 {
-    int64_t defaultColorFormat;
-    int64_t presentColorFormat;
-    int64_t depthFormat;
-    int64_t colorSpace;
+    VkFormat defaultColorFormat;
+    VkFormat presentColorFormat;
+    VkFormat depthFormat;
+    VkColorSpaceKHR colorSpace;
 };
 
 struct CarpVk;
