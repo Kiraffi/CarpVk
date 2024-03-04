@@ -2,21 +2,19 @@
 
 #include <stdint.h>
 
-static const int PtrSize = sizeof(void *);
-
-#if PtrSize == 8
-#define VK_HANDLE(handleName) handleName##_T*
+#if (defined __x86_64__ && !defined __ILP32__)
+#define VK_HANDLE(handleName) typedef struct handleName##_T* handleName
 #else
 #define VK_HANDLE(handleName) uint64_t
 #endif
-#define VK_PTR_HANDLE(handleName) handleName##_T*
+#define VK_PTR_HANDLE(handleName) typedef struct handleName##_T* handleName
 
 
-VK_DEFINE_HANDLE(VkInstance)
-VK_DEFINE_HANDLE(VkPhysicalDevice)
-VK_DEFINE_HANDLE(VkDevice)
-VK_DEFINE_HANDLE(VkQueue)
-VK_DEFINE_HANDLE(VkCommandBuffer)
+VK_PTR_HANDLE(VkInstance);
+VK_PTR_HANDLE(VkPhysicalDevice);
+VK_PTR_HANDLE(VkDevice);
+VK_PTR_HANDLE(VkQueue);
+VK_PTR_HANDLE(VkCommandBuffer);
 
 VK_HANDLE(VkDebugUtilsMessengerEXT);
 VK_HANDLE(VkSurfaceKHR);
