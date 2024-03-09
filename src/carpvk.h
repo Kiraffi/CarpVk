@@ -95,12 +95,6 @@ struct CarpVk
 {
     static const int FramesInFlight = 4;
     static const int QueryCount = 128;
-
-    FnCreateSurface createSurfaceFn = nullptr;
-    void *createSurfaceData = nullptr;
-    FnDestroyBuffers destroyBuffers = nullptr;
-    void* destroyBuffersData = nullptr;
-    
 };
 
 
