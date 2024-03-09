@@ -54,11 +54,11 @@ struct Image
     int32_t height = 0;
 };
 
+struct CarpVk;
 
-struct alignas(sizeof(char*)) VulkanInstanceBuilder
-{
-    char size[1024];
-};
+using FnGetExtraInstanceExtensions = const char *const *(*)(uint32_t* outCount);
+using FnCreateSurface = VkSurfaceKHR(*)(VkInstance_T *instance, void *data);
+using FnDestroyBuffers = void (*)(void* data);
 
 enum class VSyncType : unsigned char
 {
@@ -67,6 +67,20 @@ enum class VSyncType : unsigned char
     MAILBOX_VSYNC,
 };
 
+struct VulkanInstanceParams
+{
+    FnGetExtraInstanceExtensions getExtraExtensionsFn = nullptr;
+    FnCreateSurface createSurfaceFn = nullptr;
+    FnDestroyBuffers destroyBuffersFn = nullptr;
+    void *pData = nullptr;
+    const char **extensions = nullptr;
+    int extensionCount = 0;
+    int width = 0;
+    int height = 0;
+    VSyncType vsyncMode = VSyncType::MAILBOX_VSYNC;
+    bool useValidation = false;
+    bool useIntegratedGpu = false;
+};
 
 struct CarpSwapChainFormats
 {
@@ -76,45 +90,27 @@ struct CarpSwapChainFormats
     VkColorSpaceKHR colorSpace;
 };
 
-struct CarpVk;
-using FnDestroyBuffers = void (*)(CarpVk& carpVk);
-
 
 struct CarpVk
 {
     static const int FramesInFlight = 4;
     static const int QueryCount = 128;
 
+    FnCreateSurface createSurfaceFn = nullptr;
+    void *createSurfaceData = nullptr;
     FnDestroyBuffers destroyBuffers = nullptr;
     void* destroyBuffersData = nullptr;
+    
 };
 
 
-void deinitCarpVk(CarpVk& carpvk);
+bool initVulkan(const VulkanInstanceParams &params);
+void deinitVulkan();
 
 void printExtensions();
 void printLayers();
 
-VulkanInstanceBuilder instaceBuilder();
 
-VulkanInstanceBuilder& instanceBuilderSetApplicationVersion(
-    VulkanInstanceBuilder &builder, int major, int minor, int patch);
-
-VulkanInstanceBuilder& instanceBuilderSetExtensions(
-    VulkanInstanceBuilder &builder, const char** extensions, int extensionCount);
-
-VulkanInstanceBuilder& instanceBuilderUseDefaultValidationLayers(VulkanInstanceBuilder &builder);
-VulkanInstanceBuilder& instanceBuilderSetDefaultMessageSeverity(VulkanInstanceBuilder &builder);
-
-
-bool instanceBuilderFinish(VulkanInstanceBuilder &builder);
-
-
-bool createPhysicalDevice(bool useIntegratedGpu);
-bool createDeviceWithQueues(VulkanInstanceBuilder& builder);
-bool createSwapchain(VSyncType vsyncMode, int width, int height);
-
-bool finalizeInit(CarpVk& carpVk);
 VkImageView createImageView(VkImage image, int64_t format);
 bool createImage(uint32_t width, uint32_t height,
     int64_t imageFormat, int64_t usage, const char* imageName,
@@ -174,10 +170,10 @@ void destroyPipeline(VkPipeline* pipelines, int32_t pipelineCount);
 void destroyPipelineLayouts(VkPipelineLayout* pipelineLayouts, int32_t pipelineLayoutCount);
 void destroyDescriptorPools(VkDescriptorPool* pools, int32_t poolCount);
 
-void setVkSurface(VkSurfaceKHR surface);
 VkInstance getVkInstance();
 VkDevice getVkDevice();
 VkCommandBuffer getVkCommandBuffer();
+VkDescriptorPool getVkDescriptorPool();
 const CarpSwapChainFormats& getSwapChainFormats();
 
 

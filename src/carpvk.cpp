@@ -27,6 +27,37 @@
 
 static const uint32_t sVulkanApiVersion = VK_API_VERSION_1_3;
 
+struct VulkanInstanceBuilder
+{
+    VkApplicationInfo m_appInfo = {
+        .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+        .pApplicationName = "Test app",
+        .applicationVersion = VK_MAKE_VERSION(0, 0, 1),
+        .pEngineName = "carp engine",
+        .engineVersion = VK_MAKE_VERSION(0, 0, 1),
+        .apiVersion = sVulkanApiVersion,
+    };
+
+    VkInstanceCreateInfo m_createInfo = {
+        .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        .pApplicationInfo = &m_appInfo,
+    };
+
+    VkDebugUtilsMessengerCreateInfoEXT m_debugCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+    };
+
+    VkValidationFeaturesEXT m_validationFeatures = {
+        .sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT,
+    };
+
+    VulkanInstanceParams vulkanInstanceParams = {};
+    const char *extensions[256] = {};
+    uint32_t extensionCount = 0;
+};
+
+
+
 static VkInstance sVkInstance = {};
 
 static VkPhysicalDevice sVkPhysicalDevice = {};
@@ -51,6 +82,8 @@ static VkCommandBuffer sVkCommandBuffers[CarpVk::FramesInFlight] = {};
 
 static VmaAllocator sVkAllocator = {};
 
+static VkDescriptorPool sVkDescriptorPool;
+
 static CarpSwapChainFormats sVkSwapchainFormats = {};
 
 static int64_t sVkFrameIndex = -1;
@@ -67,39 +100,12 @@ static PFN_vkCmdDebugMarkerBeginEXT cmdDebugMarkerBegin = nullptr;
 static PFN_vkCmdDebugMarkerEndEXT cmdDebugMarkerEnd = nullptr;
 static PFN_vkCmdDebugMarkerInsertEXT cmdDebugMarkerInsert = nullptr;
 
-static std::vector<Image*> allImages;
-static std::vector<Image*> allRenderTargetImages;
+static std::vector<Image*> sAllImages;
+static std::vector<Image*> sAllRenderTargetImages;
+
+static VulkanInstanceBuilder sVkInstanceBuilder;
 
 
-
-
-struct VulkanInstanceBuilderImpl
-{
-    VkApplicationInfo m_appInfo = {
-        .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-        .pApplicationName = "Test app",
-        .applicationVersion = VK_MAKE_VERSION(0, 0, 1),
-        .pEngineName = "carp engine",
-        .engineVersion = VK_MAKE_VERSION(0, 0, 1),
-        .apiVersion = sVulkanApiVersion,
-    } ;
-
-    VkInstanceCreateInfo m_createInfo = {
-        .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
-        .pApplicationInfo = &m_appInfo,
-    };
-
-    VkDebugUtilsMessengerCreateInfoEXT m_debugCreateInfo = {
-        .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-    };
-
-    VkValidationFeaturesEXT m_validationFeatures = {
-        .sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT,
-    };
-};
-
-static_assert(sizeof(VulkanInstanceBuilder) >= sizeof(VulkanInstanceBuilderImpl));
-static_assert(alignof(VulkanInstanceBuilder) == alignof(VulkanInstanceBuilderImpl));
 
 struct SwapChainSupportDetails
 {
@@ -328,9 +334,6 @@ static void sDestroySwapchain()
 }
 
 
-
-
-
 static VkSemaphore sCreateSemaphore()
 {
     VkSemaphore semaphore = {};
@@ -396,175 +399,27 @@ static void sAcquireDeviceDebugRenderdocFunctions(VkDevice device)
 
 
 
-
-
-
-void deinitCarpVk(CarpVk& carpVk)
+static bool sUseDefaultValidationLayers()
 {
-    if (sVkInstance == nullptr)
-    {
-        return;
-    }
-    if (sVkDevice)
-    {
-        VK_CHECK_CALL(vkDeviceWaitIdle(sVkDevice));
+    sVkInstanceBuilder.m_createInfo.ppEnabledLayerNames = sDefaultValidationLayers;
+    sVkInstanceBuilder.m_createInfo.enabledLayerCount = ARRAYSIZES(sDefaultValidationLayers);
 
-        if(carpVk.destroyBuffers)
-        {
-            carpVk.destroyBuffers(carpVk);
-        }
-
-        for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
-        {
-            if(sVkCommandPools[i])
-            {
-                vkDestroyCommandPool(sVkDevice, sVkCommandPools[i], nullptr);
-            }
-            sVkCommandPools[i] = {};
-        }
-        sDestroySwapchain();
-
-
-
-        for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
-        {
-            vkDestroyQueryPool(sVkDevice, sVkQueryPools[i], nullptr);
-        }
-
-
-        for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
-        {
-            vkDestroyFence(sVkDevice, sVkFences[i], nullptr);
-            vkDestroySemaphore(sVkDevice, sVkAcquireSemaphores[i], nullptr);
-            vkDestroySemaphore(sVkDevice, sVkReleaseSemaphores[i], nullptr);
-        }
-
-        if (sVkAllocator)
-        {
-            vmaDestroyAllocator(sVkAllocator);
-            sVkAllocator = nullptr;
-        }
-
-
-        vkDestroyDevice(sVkDevice, nullptr);
-        sVkDevice = nullptr;
-    }
-
-
-    if (sVkSurface)
-    {
-        vkDestroySurfaceKHR(sVkInstance, sVkSurface, nullptr);
-        sVkSurface = {};
-    }
-    if(sVkDebugMessenger)
-    {
-        auto dest = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(sVkInstance, "vkDestroyDebugUtilsMessengerEXT");
-        dest(sVkInstance, sVkDebugMessenger, nullptr);
-        sVkDebugMessenger = {};
-    }
-
-    vkDestroyInstance(sVkInstance, nullptr);
-}
-
-void printExtensions()
-{
-    VkExtensionProperties allExtensions[256] = {};
-    uint32_t extensionCount = 0;
-    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
-    ASSERT(extensionCount < 256);
-    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, allExtensions);
-
-    for(int i = 0; i < extensionCount; ++i)
-    {
-        printf("Extenstion: %s\n", allExtensions[i].extensionName);
-    }
-    printf("Extensions: %i\n", extensionCount);
-}
-
-void printLayers()
-{
-    VkLayerProperties allLayers[256] = {};
-    uint32_t layerCount = 0;
-    vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
-    ASSERT(layerCount < 256);
-    vkEnumerateInstanceLayerProperties(&layerCount, allLayers);
-    for(int i = 0; i < layerCount; ++i)
-    {
-        printf("Layer: %s\n", allLayers[i].layerName);
-    }
-    printf("Layers: %i\n", layerCount);
-}
-
-
-
-
-VulkanInstanceBuilder instaceBuilder()
-{
-    VulkanInstanceBuilderImpl newBuilder;
-    VulkanInstanceBuilder builder = {};
-    memcpy(&builder, &newBuilder, sizeof(VulkanInstanceBuilderImpl));
-    return builder;
-}
-
-
-VulkanInstanceBuilderImpl* sGetBuilderCasted(VulkanInstanceBuilder& builder)
-{
-    return (VulkanInstanceBuilderImpl*)(&builder);
-}
-
-VulkanInstanceBuilder& instanceBuilderSetApplicationVersion(
-    VulkanInstanceBuilder &builder, int major, int minor, int patch)
-{
-    VulkanInstanceBuilderImpl *casted =  sGetBuilderCasted(builder);
-    casted->m_appInfo.applicationVersion = VK_MAKE_VERSION(major, minor, patch);
-    return builder;
-}
-
-VulkanInstanceBuilder& instanceBuilderSetExtensions(
-    VulkanInstanceBuilder &builder, const char** extensions, int extensionCount)
-{
-    VulkanInstanceBuilderImpl *casted =  sGetBuilderCasted(builder);
-
-    casted->m_createInfo.ppEnabledExtensionNames = extensions;
-    casted->m_createInfo.enabledExtensionCount = extensionCount;
-
-    return builder;
-}
-
-VulkanInstanceBuilder& instanceBuilderUseDefaultValidationLayers(VulkanInstanceBuilder &builder)
-{
-    VulkanInstanceBuilderImpl *casted =  sGetBuilderCasted(builder);
-
-    casted->m_createInfo.ppEnabledLayerNames = sDefaultValidationLayers;
-    casted->m_createInfo.enabledLayerCount = ARRAYSIZES(sDefaultValidationLayers);
-
-    casted->m_debugCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT
+    sVkInstanceBuilder.m_debugCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT
                                       | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
                                       | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-    casted->m_debugCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
+    sVkInstanceBuilder.m_debugCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
                                   | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
                                   | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-    casted->m_debugCreateInfo.pfnUserCallback = sDebugReportCB;
+    sVkInstanceBuilder.m_debugCreateInfo.pfnUserCallback = sDebugReportCB;
 
 
-    casted->m_validationFeatures.enabledValidationFeatureCount = ARRAYSIZES(sEnabledValidationFeatures);
-    casted->m_validationFeatures.pEnabledValidationFeatures = sEnabledValidationFeatures;
-    casted->m_debugCreateInfo.pNext = &casted->m_validationFeatures;
+    sVkInstanceBuilder.m_validationFeatures.enabledValidationFeatureCount = ARRAYSIZES(sEnabledValidationFeatures);
+    sVkInstanceBuilder.m_validationFeatures.pEnabledValidationFeatures = sEnabledValidationFeatures;
+    sVkInstanceBuilder.m_debugCreateInfo.pNext = &sVkInstanceBuilder.m_validationFeatures;
 
-    casted->m_createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*) &casted->m_debugCreateInfo;
+    sVkInstanceBuilder.m_createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*) &sVkInstanceBuilder.m_debugCreateInfo;
 
-
-    return builder;
-
-}
-
-VkInstance sCreateInstance(VulkanInstanceBuilder &builder)
-{
-    VkInstance result = {};
-    VulkanInstanceBuilderImpl *casted =  sGetBuilderCasted(builder);
-    casted->m_createInfo.pApplicationInfo = &casted->m_appInfo;
-    VK_CHECK_CALL(vkCreateInstance(&casted->m_createInfo, nullptr, &result));
-    return result;
+    return true;
 }
 
 static VkDebugUtilsMessengerEXT sRegisterDebugCB(VkInstance vkInstance)
@@ -590,16 +445,16 @@ static VkDebugUtilsMessengerEXT sRegisterDebugCB(VkInstance vkInstance)
 }
 
 
-bool instanceBuilderFinish(VulkanInstanceBuilder &builder)
+static bool sCreateInstance()
 {
-    VkInstance result = sCreateInstance(builder);
+    VkInstance result = {};
+    VK_CHECK_CALL(vkCreateInstance(&sVkInstanceBuilder.m_createInfo, nullptr, &result));
     if(result == nullptr)
     {
         return false;
     }
     sVkInstance = result;
-    VulkanInstanceBuilderImpl *casted =  sGetBuilderCasted(builder);
-    if(casted->m_createInfo.enabledLayerCount > 0)
+    if(sVkInstanceBuilder.m_createInfo.enabledLayerCount > 0)
     {
         VkDebugUtilsMessengerEXT debugMessenger = sRegisterDebugCB(result);
         if (debugMessenger == 0)
@@ -615,26 +470,7 @@ bool instanceBuilderFinish(VulkanInstanceBuilder &builder)
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-bool createPhysicalDevice(bool useIntegratedGpu)
+static bool sCreatePhysicalDevice(bool useIntegratedGpu)
 {
     VkPhysicalDeviceType wantedDeviceType = useIntegratedGpu
         ? VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
@@ -781,10 +617,8 @@ bool createPhysicalDevice(bool useIntegratedGpu)
 }
 
 
-bool createDeviceWithQueues(VulkanInstanceBuilder& builder)
+bool sCreateDeviceWithQueues()
 {
-    VulkanInstanceBuilderImpl *casted = sGetBuilderCasted(builder);
-
     SwapChainSupportDetails swapChainSupport = sQuerySwapChainSupport(sVkPhysicalDevice, sVkSurface);
     bool swapChainAdequate = swapChainSupport.formatCount > 0 && swapChainSupport.presentModeCount > 0;
     if(!swapChainAdequate)
@@ -883,8 +717,8 @@ FoundSwapChain:
     createInfo.ppEnabledExtensionNames = sDeviceExtensions;
 
 
-    createInfo.ppEnabledLayerNames = casted->m_createInfo.ppEnabledLayerNames;
-    createInfo.enabledLayerCount = casted->m_createInfo.enabledLayerCount;
+    createInfo.ppEnabledLayerNames = sVkInstanceBuilder.m_createInfo.ppEnabledLayerNames;
+    createInfo.enabledLayerCount = sVkInstanceBuilder.m_createInfo.enabledLayerCount;
 
     VK_CHECK_CALL(vkCreateDevice(sVkPhysicalDevice, &createInfo,
         nullptr, &sVkDevice));
@@ -925,7 +759,7 @@ FoundSwapChain:
 
 
 
-bool createSwapchain(VSyncType vsyncMode, int width, int height)
+static bool sCreateSwapchain(VSyncType vsyncMode, int width, int height)
 {
     VkPresentModeKHR findPresentMode = VkPresentModeKHR::VK_PRESENT_MODE_FIFO_KHR;
     switch (vsyncMode)
@@ -1066,8 +900,110 @@ bool createSwapchain(VSyncType vsyncMode, int width, int height)
     return true;
 }
 
-bool finalizeInit(CarpVk& carpVk)
+static bool sCreateDescriptorPool()
 {
+    VkDevice device = getVkDevice();
+
+
+    static constexpr int MAX_SIZES = 4096;
+
+    VkDescriptorPoolSize poolSizes[] =
+    {
+        { .type = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = MAX_SIZES },
+        { .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = MAX_SIZES },
+        { .type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .descriptorCount = MAX_SIZES },
+        { .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = MAX_SIZES },
+        { .type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, .descriptorCount = MAX_SIZES },
+        { .type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, .descriptorCount = MAX_SIZES },
+        { .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = MAX_SIZES },
+        { .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = MAX_SIZES },
+        { .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, .descriptorCount = MAX_SIZES },
+        { .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, .descriptorCount = MAX_SIZES },
+        { .type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, .descriptorCount = MAX_SIZES },
+    };
+
+    VkDescriptorPoolCreateInfo poolInfo = {};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = ARRAYSIZES(poolSizes);
+    poolInfo.pPoolSizes = poolSizes;
+    poolInfo.maxSets = MAX_SIZES;
+    VkResult result = vkCreateDescriptorPool(device, &poolInfo, nullptr, &sVkDescriptorPool);
+    VK_CHECK_CALL(result);
+    return result == VK_SUCCESS;
+}
+
+
+
+
+
+
+
+
+
+
+
+bool initVulkan(const VulkanInstanceParams &params)
+{
+    sVkInstanceBuilder.vulkanInstanceParams = params;
+    for(int i = 0; i < params.extensionCount; ++i)
+    {
+        sVkInstanceBuilder.extensions[i] = params.extensions[i];
+    }
+    {
+        uint32_t extraExtensionCount = 0;
+        const char *const *extraExtensions = params.getExtraExtensionsFn(&extraExtensionCount);
+
+        for(uint32_t i = 0; i < extraExtensionCount; ++i)
+        {
+            sVkInstanceBuilder.extensions[params.extensionCount + i] = extraExtensions[i];
+        }
+        sVkInstanceBuilder.extensionCount = params.extensionCount + extraExtensionCount;
+    }
+
+
+    sVkInstanceBuilder.m_createInfo.ppEnabledExtensionNames = sVkInstanceBuilder.extensions;
+    sVkInstanceBuilder.m_createInfo.enabledExtensionCount = sVkInstanceBuilder.extensionCount;
+
+    if(params.useValidation && !sUseDefaultValidationLayers())
+    {
+        printf("Failed to initialize vulkan.\n");
+        return false;
+    }
+
+    if(!sCreateInstance())
+    {
+        printf("Failed to initialize vulkan.\n");
+        return false;
+    }
+    printf("Success on creating instance\n");
+
+
+    sVkSurface = params.createSurfaceFn(sVkInstance, params.pData);
+    if(!sVkSurface)
+    {
+        printf("Failed to create surface\n");
+        return false;
+    }
+
+    if(!sCreatePhysicalDevice(params.useIntegratedGpu))
+    {
+        printf("Failed to create physical device\n");
+        return false;
+    }
+
+    if(!sCreateDeviceWithQueues())
+    {
+        printf("Failed to create logical device with queues\n");
+        return false;
+    }
+
+    if(!sCreateSwapchain(params.vsyncMode, params.width, params.height))
+    {
+        printf("Failed to create swapchain\n");
+        return false;
+    }
+
+
     for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
     {
         sVkQueryPools[i] = sCreateQueryPool(CarpVk::QueryCount);
@@ -1116,7 +1052,6 @@ bool finalizeInit(CarpVk& carpVk)
             return false;
         }
 
-
         VkCommandBufferAllocateInfo allocateInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
         allocateInfo.commandPool = sVkCommandPools[i];
         allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -1132,19 +1067,117 @@ bool finalizeInit(CarpVk& carpVk)
                     return false;
                 }
 
-                static const char* s = "Main command buffer";
+                static const char *s = "Main command buffer";
                 sSetObjectName((uint64_t)sVkCommandBuffers[i], VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT, s);
             }
         }
     }
 
+    return sCreateDescriptorPool();
 
-    return true;
 }
 
 
 
+void deinitVulkan()
+{
+    if(sVkInstance == nullptr)
+    {
+        return;
+    }
+    if(sVkDevice)
+    {
+        VK_CHECK_CALL(vkDeviceWaitIdle(sVkDevice));
 
+        if(sVkInstanceBuilder.vulkanInstanceParams.destroyBuffersFn)
+        {
+            sVkInstanceBuilder.vulkanInstanceParams.destroyBuffersFn(sVkInstanceBuilder.vulkanInstanceParams.pData);
+        }
+
+        for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+        {
+            if(sVkCommandPools[i])
+            {
+                vkDestroyCommandPool(sVkDevice, sVkCommandPools[i], nullptr);
+            }
+            sVkCommandPools[i] = {};
+        }
+        sDestroySwapchain();
+
+
+
+        for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+        {
+            vkDestroyQueryPool(sVkDevice, sVkQueryPools[i], nullptr);
+        }
+
+
+        for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+        {
+            vkDestroyFence(sVkDevice, sVkFences[i], nullptr);
+            vkDestroySemaphore(sVkDevice, sVkAcquireSemaphores[i], nullptr);
+            vkDestroySemaphore(sVkDevice, sVkReleaseSemaphores[i], nullptr);
+        }
+
+        if(sVkAllocator)
+        {
+            vmaDestroyAllocator(sVkAllocator);
+            sVkAllocator = nullptr;
+        }
+        if(sVkDescriptorPool)
+        {
+            vkDestroyDescriptorPool(sVkDevice, sVkDescriptorPool, nullptr);
+            sVkDescriptorPool = {};
+        }
+
+
+        vkDestroyDevice(sVkDevice, nullptr);
+        sVkDevice = nullptr;
+    }
+
+    if(sVkSurface)
+    {
+        vkDestroySurfaceKHR(sVkInstance, sVkSurface, nullptr);
+        sVkSurface = {};
+    }
+    if(sVkDebugMessenger)
+    {
+        auto dest = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(sVkInstance, "vkDestroyDebugUtilsMessengerEXT");
+        dest(sVkInstance, sVkDebugMessenger, nullptr);
+        sVkDebugMessenger = {};
+    }
+
+    vkDestroyInstance(sVkInstance, nullptr);
+}
+
+void printExtensions()
+{
+    VkExtensionProperties allExtensions[256] = {};
+    uint32_t extensionCount = 0;
+    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
+    ASSERT(extensionCount < 256);
+    vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, allExtensions);
+
+    for(int i = 0; i < extensionCount; ++i)
+    {
+        printf("Extenstion: %s\n", allExtensions[i].extensionName);
+    }
+    printf("Extensions: %i\n", extensionCount);
+}
+
+void printLayers()
+{
+    VkLayerProperties allLayers[256] = {};
+    uint32_t layerCount = 0;
+    vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+    ASSERT(layerCount < 256);
+    vkEnumerateInstanceLayerProperties(&layerCount, allLayers);
+    for(int i = 0; i < layerCount; ++i)
+    {
+        printf("Layer: %s\n", allLayers[i].layerName);
+    }
+    printf("Layers: %i\n", layerCount);
+}
 
 
 
@@ -1229,11 +1262,11 @@ bool createImage(uint32_t width, uint32_t height,
 
     if((usage & (VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)) != 0)
     {
-        allRenderTargetImages.push_back(&outImage);
+        sAllRenderTargetImages.push_back(&outImage);
     }
     else
     {
-        allImages.push_back(&outImage);
+        sAllImages.push_back(&outImage);
     }
     return true;
 }
@@ -1383,10 +1416,6 @@ void destroyDescriptorPools(VkDescriptorPool* pools, int32_t poolCount)
     }
 }
 
-void setVkSurface(VkSurfaceKHR surface)
-{
-    sVkSurface = surface;
-}
 
 
 VkInstance_T* getVkInstance()
@@ -1405,6 +1434,11 @@ VkCommandBuffer_T* getVkCommandBuffer()
     int64_t frameIndex = sVkFrameIndex % CarpVk::FramesInFlight;
     VkCommandBuffer commandBuffer = sVkCommandBuffers[frameIndex];
     return commandBuffer;
+}
+
+VkDescriptorPool getVkDescriptorPool()
+{
+    return sVkDescriptorPool;
 }
 
 const CarpSwapChainFormats& getSwapChainFormats()
@@ -1551,7 +1585,7 @@ bool beginFrame()
     VkCommandBuffer commandBuffer = getVkCommandBuffer();
     VK_CHECK_CALL(vkBeginCommandBuffer(commandBuffer, &beginInfo));
 
-    for(Image* image : allRenderTargetImages)
+    for(Image* image : sAllRenderTargetImages)
     {
         image->stageMask = VK_PIPELINE_STAGE_2_NONE;
         image->accessMask = VK_ACCESS_2_NONE;
