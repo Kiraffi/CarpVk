@@ -179,8 +179,8 @@ struct DescriptorInfo
 */
     union
     {
-        VkDescriptorImageInfo imageInfo {};
-        VkDescriptorBufferInfo bufferInfo {};
+        VkDescriptorImageInfo imageInfo;
+        VkDescriptorBufferInfo bufferInfo;
     };
 
     DescriptorType type = DescriptorType::NOT_VALID;
@@ -227,11 +227,11 @@ bool createBuffer(size_t size,
     const char* bufferName,
     Buffer &outBuffer);
 void destroyBuffer(Buffer& buffer);
-size_t uploadToScratchbuffer(const void* data, size_t size);
+BufferCopyRegion uploadToScratchbuffer(const void* data, size_t dstOffset, size_t size);
 void uploadScratchBufferToGpuBuffer(Buffer& gpuBuffer, const BufferCopyRegion& region,
     uint64_t dstAccessMask, uint64_t dstStageMask);
 
-bool updateBindDescriptorSet(const VkDescriptorSet* descriptorSet,
+bool updateBindDescriptorSet(VkDescriptorSet* descriptorSets,
     const DescriptorSetLayout* descriptorSetLayout,
     const DescriptorInfo* descriptorSetInfos, int descriptorSetInfoCount);
 
@@ -281,8 +281,8 @@ VkPipeline createGraphicsPipeline(const GPBuilder& builder, const char *pipeline
 
 bool beginFrame();
 bool presentImage(Image& presentImage);
-
-
+void beginPreFrame();
+void endPreFrame();
 
 
 

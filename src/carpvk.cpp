@@ -270,7 +270,13 @@ static VkImageAspectFlags sGetAspectMaskFromFormat(VkFormat format)
     return aspectMask;
 }
 
-
+static int64_t sGetFrameIndex()
+{
+    int64_t frameIndex = sVkFrameIndex % CarpVk::FramesInFlight;
+    frameIndex += CarpVk::FramesInFlight;
+    frameIndex %= CarpVk::FramesInFlight;
+    return frameIndex;
+}
 
 static SwapChainSupportDetails sQuerySwapChainSupport(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
 {
@@ -504,6 +510,13 @@ static bool sCreatePhysicalDevice(bool useIntegratedGpu)
         VkPhysicalDeviceProperties prop;
         VkPhysicalDevice physicalDevice = devices[i];
         vkGetPhysicalDeviceProperties(physicalDevice, &prop);
+        if(!(prop.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ||
+                 prop.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU))
+        {
+            printf("Not discrete nor integrated gpu\n");
+            continue;
+        }
+
         if(prop.apiVersion < cVulkanApiVersion)
         {
             printf("Api of device is older than required for %s\n", prop.deviceName);
@@ -1223,7 +1236,7 @@ bool createDescriptorSet(VkDescriptorSetLayout layout,
     allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     allocInfo.descriptorPool = sVkDescriptorPool;
     allocInfo.descriptorSetCount = layoutCount;
-    allocInfo.pSetLayouts = layout;
+    allocInfo.pSetLayouts = &layout;
 
     for(u32 i = 0; i < layoutCount; ++i)
     {
@@ -1348,9 +1361,10 @@ bool createBuffer(size_t size,
     VmaAllocationCreateInfo allocInfo = {};
     allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
     if(memoryFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
-        allocInfo.flags =
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
-
+    {
+        allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
+            | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    }
     VmaAllocation allocation;
     VmaAllocationInfo vmaAllocInfo;
     VK_CHECK_CALL(vmaCreateBuffer(sVkAllocator, &createInfo,
@@ -1372,34 +1386,36 @@ bool createBuffer(size_t size,
     return true;
 }
 
-size_t uploadToScratchbuffer(const void* data, size_t size)
+BufferCopyRegion uploadToScratchbuffer(const void* data, size_t dstOffset, size_t size)
 {
-    int64_t frameIndex = sVkFrameIndex % CarpVk::FramesInFlight;
+    int64_t frameIndex = sGetFrameIndex();
+
     Buffer& scratchBuffer = sVkScratchBuffer[frameIndex];
     ASSERT(scratchBuffer.data);
     ASSERT(size > 0);
 
     size_t currentOffset = sVkScratchBufferOffset;
-    ASSERT(scratchBuffer.size <= currentOffset + size);
+    size_t roundedUpSize = ((currentOffset + size + 255) & (~(size_t(255)))) - currentOffset;
+    ASSERT(currentOffset + roundedUpSize <= scratchBuffer.size);
 
     memcpy((unsigned char*)scratchBuffer.data + currentOffset, data, size);
 
-    size_t roundedUpSize = ((currentOffset + size + 255) & (~(size_t(255)))) - currentOffset;
     vmaFlushAllocation(sVkAllocator, scratchBuffer.allocation, currentOffset, roundedUpSize);
 
     sVkScratchBufferOffset += roundedUpSize;
-    return currentOffset;
+
+    return {.srcOffset =  currentOffset, .dstOffset = dstOffset, .size = roundedUpSize };
 }
 
 
 void uploadScratchBufferToGpuBuffer(Buffer& gpuBuffer, const BufferCopyRegion& region,
     uint64_t dstAccessMask, uint64_t dstStageMask)
 {
-    int64_t frameIndex = sVkFrameIndex % CarpVk::FramesInFlight;
+    int64_t frameIndex = sGetFrameIndex();
     Buffer& scratchBuffer = sVkScratchBuffer[frameIndex];
     ASSERT(scratchBuffer.data);
-    ASSERT(scratchBuffer.size <= region.srcOffset + region.size);
-    ASSERT(gpuBuffer.size <= region.dstOffset + region.size);
+    ASSERT(region.srcOffset + region.size <= scratchBuffer.size);
+    ASSERT(region.dstOffset + region.size <= gpuBuffer.size);
 
     VkBufferCopy copyRegion = {
         .srcOffset = region.srcOffset,
@@ -1638,7 +1654,7 @@ VkDevice_T* getVkDevice()
 
 VkCommandBuffer_T* getVkCommandBuffer()
 {
-    int64_t frameIndex = sVkFrameIndex % CarpVk::FramesInFlight;
+    int64_t frameIndex = sGetFrameIndex();
     VkCommandBuffer commandBuffer = sVkCommandBuffers[frameIndex];
     return commandBuffer;
 }
@@ -1748,15 +1764,17 @@ VkPipeline createGraphicsPipeline(const GPBuilder& builder, const char* pipeline
 }
 
 
-bool updateBindDescriptorSet(const DescriptorSetLayout* descriptorSetLayout,
-    const VkDescriptorSet* descriptorSet,
+bool updateBindDescriptorSet(VkDescriptorSet* descriptorSets,
+    const DescriptorSetLayout* descriptorSetLayout,
     const DescriptorInfo* descriptorSetInfos, int descriptorSetCount)
 {
     constexpr static int MAX_DESCRIPTOR_COUNT = 32;
     ASSERT(descriptorSetCount <= MAX_DESCRIPTOR_COUNT);
-    ASSERT(descriptorSetCount == 0);
+    ASSERT(descriptorSetCount > 0);
     ASSERT(descriptorSetLayout);
-    ASSERT(descriptorSet);
+    ASSERT(descriptorSets);
+    ASSERT(descriptorSetInfos);
+
     if(descriptorSetCount == 0)
     {
         ASSERT(false && "Descriptorbinds failed");
@@ -1780,7 +1798,7 @@ bool updateBindDescriptorSet(const DescriptorSetLayout* descriptorSetLayout,
             bufferInfos[bufferCount] = bufferInfo;
 
             VkWriteDescriptorSet descriptor{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            descriptor.dstSet = descriptorSet;
+            descriptor.dstSet = descriptorSets[i];
             descriptor.dstArrayElement = 0;
             descriptor.descriptorType = (VkDescriptorType)descriptorSetLayout[i].descriptorType;
             descriptor.dstBinding = descriptorSetLayout[i].bindingIndex;
@@ -1802,7 +1820,7 @@ bool updateBindDescriptorSet(const DescriptorSetLayout* descriptorSetLayout,
             imageInfos[imageCount] = imageInfo;
 
             VkWriteDescriptorSet descriptor{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            descriptor.dstSet = descriptorSet;
+            descriptor.dstSet = descriptorSets[i];
             descriptor.dstArrayElement = 0;
             descriptor.descriptorType = (VkDescriptorType)descriptorSetLayout[i].descriptorType;
             descriptor.dstBinding = descriptorSetLayout[i].bindingIndex;
@@ -1835,10 +1853,11 @@ bool updateBindDescriptorSet(const DescriptorSetLayout* descriptorSetLayout,
 
 bool beginFrame()
 {
+    sVkScratchBufferOffset = 0;
     VkDevice device = getVkDevice();
 
     sVkFrameIndex++;
-    int64_t frameIndex = sVkFrameIndex % CarpVk::FramesInFlight;
+    int64_t frameIndex = sGetFrameIndex();
     {
         //ScopedTimer aq("Acquire");
         VK_CHECK_CALL(vkWaitForFences(device, 1, &sVkFences[frameIndex], VK_TRUE, UINT64_MAX));
@@ -1900,7 +1919,7 @@ bool presentImage(Image& imageToPresent)
 {
     VkDevice device = getVkDevice();
 
-    int64_t frameIndex = sVkFrameIndex % CarpVk::FramesInFlight;
+    int64_t frameIndex = sGetFrameIndex();
     VkCommandBuffer commandBuffer = getVkCommandBuffer();
 
     VkImage swapchainImage = sVkSwapchainImages[sVkImageIndex];
@@ -2064,7 +2083,44 @@ bool presentImage(Image& imageToPresent)
             VK_CHECK_CALL(res);
         }
     }
+    ASSERT(sVkScratchBufferOffset <= cVulkanScratchBufferSize);
 
     //VK_CHECK_CALL(vkDeviceWaitIdle(device));
     return true;
+}
+
+
+void beginPreFrame()
+{
+    sVkScratchBufferOffset = 0;
+
+    int64_t frameIndex = sGetFrameIndex();
+    VkCommandBuffer commandBuffer = getVkCommandBuffer();
+
+    VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkResetCommandPool(sVkDevice, sVkCommandPools[frameIndex], 0);
+    VK_CHECK_CALL(vkBeginCommandBuffer(commandBuffer, &beginInfo));
+}
+
+
+void endPreFrame()
+{
+    int64_t frameIndex = sGetFrameIndex();
+    VkCommandBuffer commandBuffer = getVkCommandBuffer();
+
+    VK_CHECK_CALL(vkEndCommandBuffer(commandBuffer));
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    VK_CHECK_CALL(vkQueueSubmit(sVkQueue, 1, &submitInfo, VK_NULL_HANDLE));
+    VK_CHECK_CALL(vkQueueWaitIdle(sVkQueue));
+
+    VK_CHECK_CALL(vkDeviceWaitIdle(sVkDevice));
+
+    ASSERT(sVkScratchBufferOffset <= cVulkanScratchBufferSize);
 }
