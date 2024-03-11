@@ -30,8 +30,8 @@ VK_HANDLE(VkSemaphore);
 VK_HANDLE(VkFence);
 VK_HANDLE(VkCommandPool);
 
-VK_DEFINE_HANDLE(VmaAllocator);
-VK_DEFINE_HANDLE(VmaAllocation);
+VK_PTR_HANDLE(VmaAllocator);
+VK_PTR_HANDLE(VmaAllocation);
 
 VK_HANDLE(VkShaderModule);
 VK_HANDLE(VkDescriptorSetLayout);
@@ -223,6 +223,14 @@ struct CPBuilder
 };
 
 
+struct RenderingAttachmentInfo
+{
+    VkClearValue clearValue = {};
+    Image *image = nullptr;
+    int32_t loadOp = 0;
+    int32_t storeOp = 0;
+};
+
 bool initVulkan(const VulkanInstanceParams &params);
 void deinitVulkan();
 
@@ -243,11 +251,10 @@ bool createBuffer(size_t size,
     const char* bufferName,
     Buffer &outBuffer);
 void destroyBuffer(Buffer& buffer);
-BufferCopyRegion uploadToScratchbuffer(const void* data, size_t dstOffset, size_t size);
-void uploadScratchBufferToGpuBuffer(Buffer& gpuBuffer, const BufferCopyRegion& region,
-    uint64_t dstAccessMask, uint64_t dstStageMask);
-void uploadScratchBufferToGpuUniformBuffer(const UniformBuffer& uniformBuffer, const BufferCopyRegion& region,
-    uint64_t dstAccessMask, uint64_t dstStageMask);
+
+void uploadToGpuBuffer(Buffer &gpuBuffer, const void *data, size_t dstOffset, size_t size);
+void uploadToUniformBuffer(UniformBuffer &uniformBuffer, const void *data, size_t size);
+
 
 bool updateBindDescriptorSet(VkDescriptorSet descriptorSet,
     const DescriptorSetLayout* descriptorSetLayout,
@@ -311,22 +318,13 @@ VkPipelineShaderStageCreateInfo createDefaultComputeInfo(VkShaderModule module);
 
 UniformBuffer createUniformBuffer(size_t size);
 
+void beginRenderPipeline(RenderingAttachmentInfo *colorTargets, int32_t colorTargetCount,
+    RenderingAttachmentInfo *depthTarget,
+    VkPipelineLayout pipelineLayout, VkPipeline pipeline, VkDescriptorSet descriptorSet);
 
-void prepareGraphicsSampleWriteImage(Image& image);
-void prepareGraphicsSampleReadImage(Image& image);
-void prepareGraphicsImageWriteImage(Image &image);
-void prepareGraphicsImageReadImage(Image &image);
-void prepareGraphicsWriteBuffer(Buffer &buffer);
-void prepareGraphicsReadBuffer(Buffer &buffer);
+void endRenderPipeline();
 
-void prepareComputeWriteImage(Image &image);
-void prepareComputeReadImage(Image &image);
-void prepareComputeWriteBuffer(Buffer &buffer);
-void prepareComputeReadBufer(Buffer &buffer);
-
-void prepareTransferWriteImage(Image &image);
-void prepareTransferReadImage(Image &image);
-void prepareTransferWriteBuffer(Buffer &buffer);
-void prepareTransferReadBuffer(Buffer &buffer);
+void beginComputePipeline(VkPipelineLayout pipelineLayout, VkPipeline pipeline, VkDescriptorSet descriptorSet);
+void endComputePipeline();
 
 void flushBarriers();
