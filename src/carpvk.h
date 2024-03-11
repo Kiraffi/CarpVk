@@ -44,6 +44,16 @@ enum VkFormat;
 enum VkImageLayout;
 enum VkColorSpaceKHR;
 
+static constexpr VkPipelineColorBlendAttachmentState cDefaultBlendState = {
+    .blendEnable = VK_FALSE,
+    .colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT |
+        VK_COLOR_COMPONENT_G_BIT |
+        VK_COLOR_COMPONENT_B_BIT |
+        VK_COLOR_COMPONENT_A_BIT
+};
+
+
 struct Image
 {
     VkImage image = {};
@@ -78,12 +88,22 @@ struct BufferCopyRegion
     size_t size = 0;
 };
 
+
+struct UniformBuffer
+{
+    size_t offset = 0;
+    size_t size = 0;
+};
+
+
+
 struct CarpVk;
 
 using FnGetExtraInstanceExtensions = const char *const *(*)(uint32_t* outCount);
-using FnCreateSurface = VkSurfaceKHR(*)(VkInstance_T *instance, void *data);
-using FnDestroyBuffers = void (*)(void* data);
-
+using FnCreateSurface = VkSurfaceKHR(*)(VkInstance_T *instance, void* userData);
+using FnDestroyBuffers = void (*)(void* userData);
+using FnGetWindowSize = void (*)(int32_t* width, int32_t* height, void* userData);
+using FnResized = void (*)(void* userData);
 enum class VSyncType : unsigned char
 {
     FIFO_VSYNC,
@@ -96,7 +116,9 @@ struct VulkanInstanceParams
     FnGetExtraInstanceExtensions getExtraExtensionsFn = nullptr;
     FnCreateSurface createSurfaceFn = nullptr;
     FnDestroyBuffers destroyBuffersFn = nullptr;
-    void *pData = nullptr;
+    FnGetWindowSize getWindowSizeFn = nullptr;
+    FnResized resizedFn = nullptr;
+    void* userData = nullptr;
     const char **extensions = nullptr;
     int extensionCount = 0;
     int width = 0;
@@ -132,10 +154,9 @@ struct DescriptorInfo
 {
     enum class DescriptorType
     {
+        NOT_VALID,
         IMAGE,
         BUFFER,
-
-        NOT_VALID
     };
 
 
@@ -163,20 +184,9 @@ struct DescriptorInfo
         bufferInfo.range = buffer.size;
         type = DescriptorType::BUFFER;
     }
-/*
-    DescriptorInfo(const UniformBufferHandle handle)
-    {
-        ASSERT(handle.manager);
-        ASSERT(handle.manager->buffer);
-        ASSERT(handle.manager->buffer->buffer);
-        ASSERT(handle.isValid());
 
-        bufferInfo.buffer = handle.manager->buffer->buffer;
-        bufferInfo.offset = handle.getOffset();
-        bufferInfo.range = 65536u;
-        type = DescriptorType::BUFFER;
-    }
-*/
+    DescriptorInfo(const UniformBuffer& buffer);
+
     union
     {
         VkDescriptorImageInfo imageInfo;
@@ -205,6 +215,12 @@ struct GPBuilder
 
 };
 
+struct CPBuilder
+{
+    VkPipelineShaderStageCreateInfo stageInfo = {};
+    VkPipelineLayout pipelineLayout = {};
+};
+
 
 bool initVulkan(const VulkanInstanceParams &params);
 void deinitVulkan();
@@ -212,9 +228,8 @@ void deinitVulkan();
 void printExtensions();
 void printLayers();
 
-bool createDescriptorSet(VkDescriptorSetLayout layout,
-    const DescriptorSetLayout* layouts, int layoutCount,
-    VkDescriptorSet* outSet);
+bool createDescriptorSet(VkDescriptorSetLayout layout, VkDescriptorSet* outSet);
+
 VkImageView createImageView(VkImage image, int64_t format);
 bool createImage(uint32_t width, uint32_t height,
     int64_t imageFormat, int64_t usage, const char* imageName,
@@ -230,8 +245,10 @@ void destroyBuffer(Buffer& buffer);
 BufferCopyRegion uploadToScratchbuffer(const void* data, size_t dstOffset, size_t size);
 void uploadScratchBufferToGpuBuffer(Buffer& gpuBuffer, const BufferCopyRegion& region,
     uint64_t dstAccessMask, uint64_t dstStageMask);
+void uploadScratchBufferToGpuUniformBuffer(const UniformBuffer& uniformBuffer, const BufferCopyRegion& region,
+    uint64_t dstAccessMask, uint64_t dstStageMask);
 
-bool updateBindDescriptorSet(VkDescriptorSet* descriptorSets,
+bool updateBindDescriptorSet(VkDescriptorSet descriptorSet,
     const DescriptorSetLayout* descriptorSetLayout,
     const DescriptorInfo* descriptorSetInfos, int descriptorSetInfoCount);
 
@@ -251,6 +268,9 @@ VkImageMemoryBarrier2 imageBarrier(VkImage image,
     uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout,
     uint32_t aspectMask);
 
+VkBufferMemoryBarrier2 bufferBarrier(UniformBuffer& buffer,
+     uint64_t dstAccessMask, uint64_t dstStageMask);
+
 VkBufferMemoryBarrier2 bufferBarrier(Buffer& buffer,
      uint64_t dstAccessMask, uint64_t dstStageMask);
 
@@ -264,6 +284,7 @@ bool createShader(const char* code, int codeSize, VkShaderModule& outModule);
 
 VkDescriptorSetLayout createSetLayout(const DescriptorSetLayout* descriptors, int32_t count);
 
+VkPipelineLayout createPipelineLayout(const VkDescriptorSetLayout descriptorSetLayout);
 void destroyShaderModule(VkShaderModule* shaderModules, int32_t shaderModuleCount);
 void destroyPipeline(VkPipeline* pipelines, int32_t pipelineCount);
 void destroyPipelineLayouts(VkPipelineLayout* pipelineLayouts, int32_t pipelineLayoutCount);
@@ -275,14 +296,16 @@ VkCommandBuffer getVkCommandBuffer();
 VkDescriptorPool getVkDescriptorPool();
 const CarpSwapChainFormats& getSwapChainFormats();
 
-
-VkPipeline createGraphicsPipeline(const GPBuilder& builder, const char *pipelineName);
-
+VkPipeline createGraphicsPipeline(const GPBuilder& builder, const char* pipelineName);
+VkPipeline createComputePipeline(const CPBuilder& builder, const char* pipelineName);
 
 bool beginFrame();
 bool presentImage(Image& presentImage);
 void beginPreFrame();
 void endPreFrame();
 
+VkPipelineShaderStageCreateInfo createDefaultVertexInfo(VkShaderModule module);
+VkPipelineShaderStageCreateInfo createDefaultFragmentInfo(VkShaderModule module);
+VkPipelineShaderStageCreateInfo createDefaultComputeInfo(VkShaderModule module);
 
-
+UniformBuffer createUniformBuffer(size_t size);

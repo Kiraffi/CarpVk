@@ -90,7 +90,7 @@ static CarpSwapChainFormats sVkSwapchainFormats = {};
 
 static int64_t sVkFrameIndex = -1;
 
-static int sVkQueueIndex = -1;
+static uint32_t sVkQueueIndex = -1;
 static int sVkSwapchainCount = 0;
 static int sVkSwapchainWidth = 0;
 static int sVkSwapchainHeight = 0;
@@ -110,6 +110,7 @@ static VulkanInstanceBuilder sVkInstanceBuilder;
 
 
 static Buffer sVkUniformBuffer = {};
+static size_t sVkUniformBufferOffset = {};
 static Buffer sVkScratchBuffer[CarpVk::FramesInFlight] = {};
 static size_t sVkScratchBufferOffset = 0;
 
@@ -333,11 +334,12 @@ static int sFindQueueFamilies(VkPhysicalDevice physicalDevice, VkSurfaceKHR surf
 
 static void sDestroySwapchain()
 {
+/*
     for(int i = 0; i < sVkSwapchainCount; ++i)
     {
         vkDestroyImageView(sVkDevice, sVkSwapchainImagesViews[i], nullptr);
     }
-
+*/
     sVkSwapchainCount = 0u;
     sVkSwapchainWidth = sVkSwapchainHeight = 0u;
 
@@ -896,7 +898,7 @@ static bool sCreateSwapchain(VSyncType vsyncMode, int width, int height)
 
     VK_CHECK_CALL(vkGetSwapchainImagesKHR(sVkDevice, sVkSwapchain, &swapchainCount, sVkSwapchainImages));
     sVkSwapchainCount = swapchainCount;
-
+/*
     for(int i = 0; i < swapchainCount; ++i)
     {
         VkImageViewCreateInfo createInfo{};
@@ -916,7 +918,7 @@ static bool sCreateSwapchain(VSyncType vsyncMode, int width, int height)
 
         VK_CHECK_CALL(vkCreateImageView(sVkDevice, &createInfo, nullptr, &sVkSwapchainImagesViews[i]));
     }
-
+*/
     return true;
 }
 
@@ -951,6 +953,84 @@ static bool sCreateDescriptorPool()
     VK_CHECK_CALL(result);
     return result == VK_SUCCESS;
 }
+
+static bool sGetWindowSize(int32_t* w, int32_t* h)
+{
+    if(sVkInstanceBuilder.vulkanInstanceParams.getWindowSizeFn)
+    {
+        sVkInstanceBuilder.vulkanInstanceParams.getWindowSizeFn(
+            w, h,
+            sVkInstanceBuilder.vulkanInstanceParams.userData);
+        return true;
+    }
+    return false;
+}
+
+static bool sResizeSwapchain()
+{
+    int32_t oldWidth = sVkSwapchainWidth;
+    int32_t oldHeight = sVkSwapchainHeight;
+    if(sGetWindowSize(&sVkSwapchainWidth, &sVkSwapchainHeight))
+    {
+    }
+
+    bool wasInMinimized = false;
+    while (sVkSwapchainWidth == 0 || sVkSwapchainHeight == 0)
+    {
+
+        if(sGetWindowSize(&sVkSwapchainWidth, &sVkSwapchainHeight))
+        {
+        }
+
+        //glfwWaitEvents();
+        //glfwGetFramebufferSize(window, &width, &height);
+        wasInMinimized = true;
+    }
+
+    VK_CHECK_CALL(vkDeviceWaitIdle(sVkDevice));
+    VK_CHECK_CALL(vkQueueWaitIdle(sVkQueue));
+    VK_CHECK_CALL(vkDeviceWaitIdle(sVkDevice));
+    VK_CHECK_CALL(vkQueueWaitIdle(sVkQueue));
+
+
+
+    VkSwapchainKHR oldSwapchain = sVkSwapchain;
+
+    sCreateSwapchain(sVkInstanceBuilder.vulkanInstanceParams.vsyncMode,
+        sVkSwapchainWidth, sVkSwapchainHeight);
+
+    vkDestroySwapchainKHR(sVkDevice, oldSwapchain, nullptr);
+
+    if(sVkInstanceBuilder.vulkanInstanceParams.resizedFn)
+    {
+        sVkInstanceBuilder.vulkanInstanceParams.resizedFn(
+            sVkInstanceBuilder.vulkanInstanceParams.userData);
+    }
+    return true;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -998,7 +1078,7 @@ bool initVulkan(const VulkanInstanceParams &params)
     printf("Success on creating instance\n");
 
 
-    sVkSurface = params.createSurfaceFn(sVkInstance, params.pData);
+    sVkSurface = params.createSurfaceFn(sVkInstance, params.userData);
     if(!sVkSurface)
     {
         printf("Failed to create surface\n");
@@ -1137,7 +1217,7 @@ void deinitVulkan()
 
         if(sVkInstanceBuilder.vulkanInstanceParams.destroyBuffersFn)
         {
-            sVkInstanceBuilder.vulkanInstanceParams.destroyBuffersFn(sVkInstanceBuilder.vulkanInstanceParams.pData);
+            sVkInstanceBuilder.vulkanInstanceParams.destroyBuffersFn(sVkInstanceBuilder.vulkanInstanceParams.userData);
         }
 
         for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
@@ -1227,25 +1307,19 @@ void printLayers()
 }
 
 
-bool createDescriptorSet(VkDescriptorSetLayout layout,
-    const DescriptorSetLayout* layouts, int layoutCount,
-    VkDescriptorSet* outSet)
+bool createDescriptorSet(VkDescriptorSetLayout layout, VkDescriptorSet* outSet)
 {
-    ASSERT(layoutCount > 0);
     VkDescriptorSetAllocateInfo allocInfo = {};
     allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     allocInfo.descriptorPool = sVkDescriptorPool;
-    allocInfo.descriptorSetCount = layoutCount;
+    allocInfo.descriptorSetCount = 1;
     allocInfo.pSetLayouts = &layout;
 
-    for(u32 i = 0; i < layoutCount; ++i)
-    {
-        VkDescriptorSet descriptorSet = {};
-        VK_CHECK_CALL(vkAllocateDescriptorSets(sVkDevice, &allocInfo, &descriptorSet));
-        ASSERT(descriptorSet);
+    VkDescriptorSet descriptorSet = {};
+    VK_CHECK_CALL(vkAllocateDescriptorSets(sVkDevice, &allocInfo, &descriptorSet));
+    ASSERT(descriptorSet);
 
-        outSet[i] = descriptorSet;
-    }
+    *outSet = descriptorSet;
     return true;
 }
 
@@ -1343,6 +1417,7 @@ void destroyImage(Image& image)
         vkDestroyImageView(sVkDevice, image.view, nullptr);
     if (image.image)
         vmaDestroyImage(sVkAllocator, image.image, image.allocation);
+
     image = Image{};
 }
 
@@ -1434,8 +1509,8 @@ void uploadScratchBufferToGpuBuffer(Buffer& gpuBuffer, const BufferCopyRegion& r
         .srcAccessMask = gpuBuffer.accessMask,
         .dstStageMask = dstStageMask,
         .dstAccessMask = dstAccessMask,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .srcQueueFamilyIndex = sVkQueueIndex,
+        .dstQueueFamilyIndex = sVkQueueIndex,
         .buffer = gpuBuffer.buffer,
         .offset = region.dstOffset,
         .size = region.size,
@@ -1451,6 +1526,17 @@ void uploadScratchBufferToGpuBuffer(Buffer& gpuBuffer, const BufferCopyRegion& r
     gpuBuffer.stageMask = dstStageMask;
     gpuBuffer.accessMask = dstAccessMask;
 }
+void uploadScratchBufferToGpuUniformBuffer(const UniformBuffer& uniformBuffer, const BufferCopyRegion& region,
+    uint64_t dstAccessMask, uint64_t dstStageMask)
+{
+    BufferCopyRegion newRegion = {};
+    newRegion.srcOffset = region.srcOffset;
+    newRegion.dstOffset = uniformBuffer.offset;
+    newRegion.size = region.size;
+    uploadScratchBufferToGpuBuffer(sVkUniformBuffer, newRegion, dstAccessMask, dstStageMask);
+}
+
+
 
 void destroyBuffer(Buffer& buffer)
 {
@@ -1517,6 +1603,21 @@ VkImageMemoryBarrier2 imageBarrier(VkImage image,
     return barrier;
 }
 
+VkBufferMemoryBarrier2 bufferBarrier(UniformBuffer& uniformBuffer,
+     uint64_t dstAccessMask, uint64_t dstStageMask)
+{
+    Buffer& buffer = sVkUniformBuffer;
+    VkBufferMemoryBarrier2 barrier = bufferBarrier(buffer.buffer,
+    buffer.accessMask, buffer.stageMask,
+    dstAccessMask, dstStageMask,
+    uniformBuffer.size, uniformBuffer.offset);
+
+    buffer.accessMask = dstAccessMask;
+    buffer.stageMask = dstStageMask;
+
+    return barrier;
+}
+
 
 VkBufferMemoryBarrier2 bufferBarrier(Buffer& buffer,
      uint64_t dstAccessMask, uint64_t dstStageMask)
@@ -1544,8 +1645,8 @@ VkBufferMemoryBarrier2 bufferBarrier(VkBuffer buffer,
         .srcAccessMask = srcAccessMask,
         .dstStageMask = dstStageMask,
         .dstAccessMask = dstAccessMask,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .srcQueueFamilyIndex = sVkQueueIndex,
+        .dstQueueFamilyIndex = sVkQueueIndex,
         .buffer = buffer,
         .offset = offset,
         .size = size,
@@ -1594,7 +1695,7 @@ VkDescriptorSetLayout createSetLayout(const DescriptorSetLayout* descriptors, in
         .pBindings = setBindings,
     };
 
-    VkDescriptorSetLayout setLayout = 0;
+    VkDescriptorSetLayout setLayout = {};
     VK_CHECK_CALL(vkCreateDescriptorSetLayout(sVkDevice, &createInfo, nullptr, &setLayout));
 
     ASSERT(setLayout);
@@ -1611,6 +1712,15 @@ void destroyShaderModule(VkShaderModule* shaderModules, int32_t shaderModuleCoun
     }
 }
 
+VkPipelineLayout createPipelineLayout(const VkDescriptorSetLayout descriptorSetLayout)
+{
+    VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
+    pipelineLayoutCreateInfo.setLayoutCount = 1;
+    pipelineLayoutCreateInfo.pSetLayouts = &descriptorSetLayout;
+    VkPipelineLayout result = {};
+    VK_CHECK_CALL(vkCreatePipelineLayout(sVkDevice, &pipelineLayoutCreateInfo, nullptr, &result));
+    return result;
+}
 
 void destroyPipeline(VkPipeline* pipelines, int32_t pipelineCount)
 {
@@ -1763,8 +1873,25 @@ VkPipeline createGraphicsPipeline(const GPBuilder& builder, const char* pipeline
     return pipeline;
 }
 
+VkPipeline createComputePipeline(const CPBuilder& builder, const char* pipelineName)
+{
+    VkComputePipelineCreateInfo createInfo = { VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
 
-bool updateBindDescriptorSet(VkDescriptorSet* descriptorSets,
+    createInfo.stage = builder.stageInfo;
+    createInfo.layout = builder.pipelineLayout;
+
+    VkPipeline pipeline = {};
+    VK_CHECK_CALL(vkCreateComputePipelines(sVkDevice, VK_NULL_HANDLE,
+        1, &createInfo, nullptr, &pipeline));
+    ASSERT(pipeline);
+
+
+    sSetObjectName((uint64_t)pipeline, VK_DEBUG_REPORT_OBJECT_TYPE_PIPELINE_EXT, pipelineName);
+    return pipeline;
+}
+
+
+bool updateBindDescriptorSet(VkDescriptorSet descriptorSet,
     const DescriptorSetLayout* descriptorSetLayout,
     const DescriptorInfo* descriptorSetInfos, int descriptorSetCount)
 {
@@ -1772,7 +1899,7 @@ bool updateBindDescriptorSet(VkDescriptorSet* descriptorSets,
     ASSERT(descriptorSetCount <= MAX_DESCRIPTOR_COUNT);
     ASSERT(descriptorSetCount > 0);
     ASSERT(descriptorSetLayout);
-    ASSERT(descriptorSets);
+    ASSERT(descriptorSet);
     ASSERT(descriptorSetInfos);
 
     if(descriptorSetCount == 0)
@@ -1798,7 +1925,7 @@ bool updateBindDescriptorSet(VkDescriptorSet* descriptorSets,
             bufferInfos[bufferCount] = bufferInfo;
 
             VkWriteDescriptorSet descriptor{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            descriptor.dstSet = descriptorSets[i];
+            descriptor.dstSet = descriptorSet;
             descriptor.dstArrayElement = 0;
             descriptor.descriptorType = (VkDescriptorType)descriptorSetLayout[i].descriptorType;
             descriptor.dstBinding = descriptorSetLayout[i].bindingIndex;
@@ -1820,7 +1947,7 @@ bool updateBindDescriptorSet(VkDescriptorSet* descriptorSets,
             imageInfos[imageCount] = imageInfo;
 
             VkWriteDescriptorSet descriptor{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
-            descriptor.dstSet = descriptorSets[i];
+            descriptor.dstSet = descriptorSet;
             descriptor.dstArrayElement = 0;
             descriptor.descriptorType = (VkDescriptorType)descriptorSetLayout[i].descriptorType;
             descriptor.dstBinding = descriptorSetLayout[i].bindingIndex;
@@ -1851,6 +1978,19 @@ bool updateBindDescriptorSet(VkDescriptorSet* descriptorSets,
 }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 bool beginFrame()
 {
     sVkScratchBufferOffset = 0;
@@ -1875,19 +2015,19 @@ bool beginFrame()
     //vulk->scratchBufferLastFlush = vulk->scratchBufferOffset;
     //vulk->scratchBufferMaxOffset = (vulk->frameIndex + 1) * 32u * 1024u * 1024u;
 
-    //if (res == VK_ERROR_OUT_OF_DATE_KHR)
-    //{
-    //    if (resizeSwapchain())
-    //    {
-    //        VK_CHECK(vkDeviceWaitIdle(vulk->device));
-    //    }
-    //    return false;
-    //}
-    //else if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR)
-    //{
-    //    VK_CHECK(res);
-    //    return false;
-    //}
+    if (res == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        if (sResizeSwapchain())
+        {
+            VK_CHECK_CALL(vkDeviceWaitIdle(sVkDevice));
+        }
+        return false;
+    }
+    else if (res != VK_SUCCESS && res != VK_SUBOPTIMAL_KHR)
+    {
+        VK_CHECK_CALL(res);
+        return false;
+    }
 
     VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1928,7 +2068,7 @@ bool presentImage(Image& imageToPresent)
     {
         VkImageMemoryBarrier2 imageMemoryBarriers[] = {
             {
-                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
+                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
                 .dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT_KHR,
                 .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
                 .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -1997,7 +2137,7 @@ bool presentImage(Image& imageToPresent)
     // Prepare image for presenting.
     {
         VkImageMemoryBarrier2 presentBarrier = {
-            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR,
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
             .srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT_KHR,
             .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
             .dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
@@ -2072,13 +2212,22 @@ bool presentImage(Image& imageToPresent)
         presentInfo.pImageIndices = &sVkImageIndex;
 
         VkResult res = (vkQueuePresentKHR(sVkQueue, &presentInfo));
-        //if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR || vulk->needToResize)
-        //{
-        //    resizeSwapchain();
-        //    vulk->needToResize = false;
-        //    VK_CHECK(vkDeviceWaitIdle(vulk->device));
-        //}
-        //else
+
+        int32_t w = sVkSwapchainWidth;
+        int32_t h = sVkSwapchainHeight;
+        bool needToResize = false;
+        if(sGetWindowSize(&w, &h))
+        {
+            needToResize = w != sVkSwapchainWidth || h != sVkSwapchainHeight;
+        }
+
+
+        if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR || needToResize)
+        {
+            sResizeSwapchain();
+            VK_CHECK_CALL(vkDeviceWaitIdle(sVkDevice));
+        }
+        else
         {
             VK_CHECK_CALL(res);
         }
@@ -2123,4 +2272,65 @@ void endPreFrame()
     VK_CHECK_CALL(vkDeviceWaitIdle(sVkDevice));
 
     ASSERT(sVkScratchBufferOffset <= cVulkanScratchBufferSize);
+}
+
+VkPipelineShaderStageCreateInfo createDefaultVertexInfo(VkShaderModule module)
+{
+    VkPipelineShaderStageCreateInfo info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_VERTEX_BIT,
+        .module = module,
+        .pName = "main",
+    };
+    return info;
+}
+
+VkPipelineShaderStageCreateInfo createDefaultFragmentInfo(VkShaderModule module)
+{
+    VkPipelineShaderStageCreateInfo info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+        .module = module,
+        .pName = "main",
+    };
+    return info;
+}
+
+VkPipelineShaderStageCreateInfo createDefaultComputeInfo(VkShaderModule module)
+{
+    VkPipelineShaderStageCreateInfo info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        //.flags = VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT,
+        .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+        .module = module,
+        .pName = "main",
+    };
+    return info;
+}
+
+UniformBuffer createUniformBuffer(size_t size)
+{
+    // Round up to next 256 bytes
+    size += 255;
+    size &= ~(size_t(255));
+    ASSERT(sVkUniformBufferOffset + size <= cVulkanUniformBufferSize);
+    if(sVkUniformBufferOffset + size > cVulkanUniformBufferSize)
+    {
+        return {};
+    }
+    UniformBuffer result = {};
+    result.size = size;
+    result.offset = sVkUniformBufferOffset;
+
+    sVkUniformBufferOffset += size;
+    return result;
+}
+
+
+DescriptorInfo::DescriptorInfo(const UniformBuffer& buffer)
+{
+    bufferInfo.buffer = sVkUniformBuffer.buffer;
+    bufferInfo.offset = buffer.offset;
+    bufferInfo.range = buffer.size;
+    type = DescriptorType::BUFFER;
 }
