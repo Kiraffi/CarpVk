@@ -115,6 +115,11 @@ static Buffer sVkScratchBuffer[CarpVk::FramesInFlight] = {};
 static size_t sVkScratchBufferOffset = 0;
 
 
+
+static std::vector<VkImageMemoryBarrier2> sVkImageBarriers;
+static std::vector<VkBufferMemoryBarrier2> sVkBufferBarriers;
+
+
 struct SwapChainSupportDetails
 {
     VkSurfaceCapabilitiesKHR capabilities = {};
@@ -1458,6 +1463,7 @@ bool createBuffer(size_t size,
     outBuffer.allocation = allocation;
     outBuffer.bufferName = bufferName;
     outBuffer.size = size;
+    outBuffer.usage = usage;
     return true;
 }
 
@@ -1516,16 +1522,12 @@ void uploadScratchBufferToGpuBuffer(Buffer& gpuBuffer, const BufferCopyRegion& r
         .size = region.size,
     };
 
-    VkDependencyInfoKHR dependencyInfo = {};
-    dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR;
-    dependencyInfo.bufferMemoryBarrierCount = 1;
-    dependencyInfo.pBufferMemoryBarriers = &copyBufferBarrier;
-
-    vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
+    sVkBufferBarriers.push_back(copyBufferBarrier);
 
     gpuBuffer.stageMask = dstStageMask;
     gpuBuffer.accessMask = dstAccessMask;
 }
+
 void uploadScratchBufferToGpuUniformBuffer(const UniformBuffer& uniformBuffer, const BufferCopyRegion& region,
     uint64_t dstAccessMask, uint64_t dstStageMask)
 {
@@ -1554,35 +1556,32 @@ void destroyBuffer(Buffer& buffer)
 
 
 
-VkImageMemoryBarrier2 imageBarrier(Image& image,
+void imageBarrier(Image& image,
     uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout)
 {
-    return imageBarrier(image,
-        image.stageMask, image.accessMask, image.layout,
+    imageBarrier(image, image.stageMask, image.accessMask, image.layout,
         dstStageMask, dstAccessMask, newLayout);
 }
 
-VkImageMemoryBarrier2 imageBarrier(Image& image,
+void imageBarrier(Image& image,
     uint64_t srcStageMask, uint64_t srcAccessMask, VkImageLayout oldLayout,
     uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout)
 {
     VkImageAspectFlags aspectMask = sGetAspectMaskFromFormat((VkFormat)image.format);
-    VkImageMemoryBarrier2 barrier =
-        imageBarrier(image.image, srcStageMask, srcAccessMask, oldLayout,
-            dstStageMask, dstAccessMask, newLayout, aspectMask);
+    imageBarrier(image.image, srcStageMask, srcAccessMask, oldLayout,
+        dstStageMask, dstAccessMask, newLayout, aspectMask);
     image.stageMask = dstStageMask;
     image.accessMask = dstAccessMask;
     image.layout = newLayout;
-    return barrier;
 }
 
-VkImageMemoryBarrier2 imageBarrier(VkImage image,
+void imageBarrier(VkImage image,
     uint64_t srcStageMask, uint64_t srcAccessMask, VkImageLayout oldLayout,
     uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout,
     uint32_t aspectMask)
 {
-    if (srcAccessMask == dstAccessMask && oldLayout == newLayout)
-        return VkImageMemoryBarrier2{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+    if(srcAccessMask == dstAccessMask && oldLayout == newLayout)
+        return;
 
     VkImageMemoryBarrier2 barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
     barrier.srcAccessMask = srcAccessMask;
@@ -1600,40 +1599,34 @@ VkImageMemoryBarrier2 imageBarrier(VkImage image,
     barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
     barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
 
-    return barrier;
+    sVkImageBarriers.push_back(barrier);
 }
 
-VkBufferMemoryBarrier2 bufferBarrier(UniformBuffer& uniformBuffer,
+void bufferBarrier(UniformBuffer& uniformBuffer,
      uint64_t dstAccessMask, uint64_t dstStageMask)
 {
     Buffer& buffer = sVkUniformBuffer;
-    VkBufferMemoryBarrier2 barrier = bufferBarrier(buffer.buffer,
-    buffer.accessMask, buffer.stageMask,
-    dstAccessMask, dstStageMask,
-    uniformBuffer.size, uniformBuffer.offset);
+    bufferBarrier(buffer.buffer, buffer.accessMask, buffer.stageMask,
+        dstAccessMask, dstStageMask, uniformBuffer.size, uniformBuffer.offset);
 
     buffer.accessMask = dstAccessMask;
     buffer.stageMask = dstStageMask;
-
-    return barrier;
 }
 
 
-VkBufferMemoryBarrier2 bufferBarrier(Buffer& buffer,
+void bufferBarrier(Buffer& buffer,
      uint64_t dstAccessMask, uint64_t dstStageMask)
 {
-    VkBufferMemoryBarrier2 barrier = bufferBarrier(buffer.buffer,
+    bufferBarrier(buffer.buffer,
         buffer.accessMask, buffer.stageMask,
         dstAccessMask, dstStageMask,
         buffer.size, 0);
 
     buffer.accessMask = dstAccessMask;
     buffer.stageMask = dstStageMask;
-
-    return barrier;
 }
 
-VkBufferMemoryBarrier2 bufferBarrier(VkBuffer buffer,
+void bufferBarrier(VkBuffer buffer,
     const uint64_t srcAccessMask, const uint64_t srcStageMask,
     const uint64_t dstAccessMask, const uint64_t dstStageMask,
     const size_t size, const size_t offset)
@@ -1651,7 +1644,8 @@ VkBufferMemoryBarrier2 bufferBarrier(VkBuffer buffer,
         .offset = offset,
         .size = size,
     };
-    return bufferBarrier;
+
+    sVkBufferBarriers.push_back(bufferBarrier);
 }
 
 
@@ -2066,33 +2060,18 @@ bool presentImage(Image& imageToPresent)
 
     // Blit from imageToPresent to swapchain
     {
-        VkImageMemoryBarrier2 imageMemoryBarriers[] = {
-            {
-                .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-                .dstStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT_KHR,
-                .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
-                .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                .image = swapchainImage,
-                .subresourceRange = {
-                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                    .levelCount = 1,
-                    .layerCount = 1,
-                }
-            },
-            imageBarrier(imageToPresent,
-                VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-                VK_ACCESS_2_TRANSFER_READ_BIT,
-                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL),
-        };
+        imageBarrier(swapchainImage,
+            (uint64_t)0, (uint64_t)0, VK_IMAGE_LAYOUT_UNDEFINED,
+            (uint64_t)VK_PIPELINE_STAGE_2_BLIT_BIT_KHR,
+            (uint64_t)VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR, 
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 
+            (uint32_t)VK_IMAGE_ASPECT_COLOR_BIT);
+        imageBarrier(imageToPresent,
+            VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            VK_ACCESS_2_TRANSFER_READ_BIT,
+            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
-        VkDependencyInfoKHR dependencyInfo = {};
-        dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR;
-        dependencyInfo.imageMemoryBarrierCount = ARRAYSIZES(imageMemoryBarriers);
-        dependencyInfo.pImageMemoryBarriers = imageMemoryBarriers;
-
-        vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
-
-
+        flushBarriers();
 
         int width = imageToPresent.width;
         int height = imageToPresent.height;
@@ -2334,3 +2313,175 @@ DescriptorInfo::DescriptorInfo(const UniformBuffer& buffer)
     bufferInfo.range = buffer.size;
     type = DescriptorType::BUFFER;
 }
+
+
+
+void prepareGraphicsSampleWriteImage(Image &image)
+{
+    VkImageAspectFlags aspectMask = sGetAspectMaskFromFormat(image.format);
+    if(aspectMask & VK_IMAGE_ASPECT_COLOR_BIT)
+    {
+        imageBarrier(image,
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    }
+    else if(aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT)
+    {
+        imageBarrier(image,
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    }
+    else
+    {
+        ASSERT(!"Unknown imagetype");
+    }
+
+
+
+}
+
+void prepareGraphicsSampleReadImage(Image &image)
+{
+    VkImageAspectFlags aspectMask = sGetAspectMaskFromFormat(image.format);
+    if(aspectMask & VK_IMAGE_ASPECT_COLOR_BIT)
+    {
+        imageBarrier(image,
+            VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    }
+    else if(aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT)
+    {
+
+        imageBarrier(image,
+            VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    }
+    else
+    {
+        ASSERT(!"Unknown imagetype");
+    }
+}
+
+
+void prepareGraphicsImageWriteImage(Image &image)
+{
+    imageBarrier(image,
+        VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        VK_ACCESS_2_SHADER_WRITE_BIT,
+        VK_IMAGE_LAYOUT_GENERAL);
+}
+void prepareGraphicsImageReadImage(Image &image)
+{
+    imageBarrier(image,
+        VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        VK_ACCESS_2_SHADER_READ_BIT,
+        VK_IMAGE_LAYOUT_GENERAL);
+}
+
+
+void prepareGraphicsWriteBuffer(Buffer &buffer)
+{
+    VkAccessFlags2 access = VK_ACCESS_2_SHADER_WRITE_BIT;
+    if(buffer.usage & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)
+        access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+
+    bufferBarrier(buffer,
+        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT);
+}
+
+void prepareGraphicsReadBuffer(Buffer &buffer)
+{
+    VkAccessFlags2 access = VK_ACCESS_2_UNIFORM_READ_BIT;
+    if(buffer.usage & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)
+        access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+
+    bufferBarrier(buffer,
+        access,
+        VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT);
+}
+
+void prepareComputeWriteImage(Image &image)
+{
+    imageBarrier(image,
+        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        VK_IMAGE_LAYOUT_GENERAL);
+}
+
+void prepareComputeReadImage(Image &image)
+{
+    imageBarrier(image,
+        VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        VK_IMAGE_LAYOUT_GENERAL);
+}
+
+void prepareComputeWriteBuffer(Buffer &buffer)
+{
+    VkAccessFlags2 access = VK_ACCESS_2_SHADER_WRITE_BIT;
+    if(buffer.usage & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)
+        access = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+
+    bufferBarrier(buffer,
+        access,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
+}
+void prepareComputeReadBufer(Buffer &buffer)
+{
+    VkAccessFlags2 access = VK_ACCESS_2_UNIFORM_READ_BIT;
+    if(buffer.usage & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)
+        access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+
+    bufferBarrier(buffer,
+        access,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
+}
+
+void prepareTransferWriteImage(Image &image)
+{
+    ASSERT(0);
+
+}
+void prepareTransferReadImage(Image &image)
+{
+    ASSERT(0);
+
+}
+void prepareTransferWriteBuffer(Buffer &buffer)
+{
+    bufferBarrier(buffer,
+        VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_COPY_BIT);
+}
+
+void prepareTransferReadBuffer(Buffer &buffer)
+{
+    bufferBarrier(buffer,
+        VK_ACCESS_2_TRANSFER_READ_BIT,
+        VK_PIPELINE_STAGE_2_COPY_BIT);
+}
+
+void flushBarriers()
+{
+    if(sVkImageBarriers.size() == 0 && sVkBufferBarriers.size() == 0)
+    {
+        return;
+    }
+    VkDependencyInfo dependencyInfo = {};
+    dependencyInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependencyInfo.imageMemoryBarrierCount = sVkImageBarriers.size();
+    dependencyInfo.pImageMemoryBarriers = sVkImageBarriers.size() > 0 ? sVkImageBarriers.data() : nullptr;
+    dependencyInfo.bufferMemoryBarrierCount = sVkBufferBarriers.size();;
+    dependencyInfo.pBufferMemoryBarriers = sVkBufferBarriers.size() > 0 ? sVkBufferBarriers.data() : nullptr;
+
+    vkCmdPipelineBarrier2(getVkCommandBuffer(), &dependencyInfo);
+
+    sVkImageBarriers.clear();
+    sVkBufferBarriers.clear();
+}
+

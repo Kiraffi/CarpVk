@@ -79,6 +79,7 @@ struct Buffer
     uint64_t accessMask = 0;
     VmaAllocation_T *allocation = {};
     size_t size = 0ull;
+    uint32_t usage = 0;
 };
 
 struct BufferCopyRegion
@@ -256,25 +257,25 @@ bool updateBindDescriptorSet(VkDescriptorSet descriptorSet,
 
 
 
-VkImageMemoryBarrier2 imageBarrier(Image &image,
+void imageBarrier(Image &image,
     uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout);
 
-VkImageMemoryBarrier2 imageBarrier(Image &image,
+void imageBarrier(Image &image,
     uint64_t srcStageMask, uint64_t srcAccessMask, VkImageLayout oldLayout,
     uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout);
 
-VkImageMemoryBarrier2 imageBarrier(VkImage image,
+void imageBarrier(VkImage image,
     uint64_t srcStageMask, uint64_t srcAccessMask, VkImageLayout oldLayout,
     uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout,
     uint32_t aspectMask);
 
-VkBufferMemoryBarrier2 bufferBarrier(UniformBuffer& buffer,
+void bufferBarrier(UniformBuffer& buffer,
      uint64_t dstAccessMask, uint64_t dstStageMask);
 
-VkBufferMemoryBarrier2 bufferBarrier(Buffer& buffer,
+void bufferBarrier(Buffer& buffer,
      uint64_t dstAccessMask, uint64_t dstStageMask);
 
-VkBufferMemoryBarrier2 bufferBarrier(VkBuffer buffer,
+void bufferBarrier(VkBuffer buffer,
     uint64_t srcStageMask, uint64_t srcAccessMask,
     uint64_t dstStageMask, uint64_t dstAccessMask,
     size_t size, size_t offset);
@@ -309,3 +310,23 @@ VkPipelineShaderStageCreateInfo createDefaultFragmentInfo(VkShaderModule module)
 VkPipelineShaderStageCreateInfo createDefaultComputeInfo(VkShaderModule module);
 
 UniformBuffer createUniformBuffer(size_t size);
+
+
+void prepareGraphicsSampleWriteImage(Image& image);
+void prepareGraphicsSampleReadImage(Image& image);
+void prepareGraphicsImageWriteImage(Image &image);
+void prepareGraphicsImageReadImage(Image &image);
+void prepareGraphicsWriteBuffer(Buffer &buffer);
+void prepareGraphicsReadBuffer(Buffer &buffer);
+
+void prepareComputeWriteImage(Image &image);
+void prepareComputeReadImage(Image &image);
+void prepareComputeWriteBuffer(Buffer &buffer);
+void prepareComputeReadBufer(Buffer &buffer);
+
+void prepareTransferWriteImage(Image &image);
+void prepareTransferReadImage(Image &image);
+void prepareTransferWriteBuffer(Buffer &buffer);
+void prepareTransferReadBuffer(Buffer &buffer);
+
+void flushBarriers();
