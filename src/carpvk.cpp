@@ -1517,15 +1517,15 @@ void destroyBuffer(Buffer& buffer)
 
 
 void imageBarrier(Image& image,
-    uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout)
+    VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask, VkImageLayout newLayout)
 {
     imageBarrier(image, image.stageMask, image.accessMask, image.layout,
         dstStageMask, dstAccessMask, newLayout);
 }
 
 void imageBarrier(Image& image,
-    uint64_t srcStageMask, uint64_t srcAccessMask, VkImageLayout oldLayout,
-    uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout)
+    VkPipelineStageFlags2 srcStageMask, VkAccessFlags2 srcAccessMask, VkImageLayout oldLayout,
+    VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask, VkImageLayout newLayout)
 {
     VkImageAspectFlags aspectMask = sGetAspectMaskFromFormat((VkFormat)image.format);
     imageBarrier(image.image, srcStageMask, srcAccessMask, oldLayout,
@@ -1536,8 +1536,8 @@ void imageBarrier(Image& image,
 }
 
 void imageBarrier(VkImage image,
-    uint64_t srcStageMask, uint64_t srcAccessMask, VkImageLayout oldLayout,
-    uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout,
+    VkPipelineStageFlags2 srcStageMask, VkAccessFlags2 srcAccessMask, VkImageLayout oldLayout,
+    VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask, VkImageLayout newLayout,
     uint32_t aspectMask)
 {
     if(srcAccessMask == dstAccessMask && oldLayout == newLayout)
@@ -1563,11 +1563,12 @@ void imageBarrier(VkImage image,
 }
 
 void bufferBarrier(UniformBuffer& uniformBuffer,
-     uint64_t dstAccessMask, uint64_t dstStageMask)
+     VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask)
 {
     Buffer& buffer = sVkUniformBuffer;
-    bufferBarrier(buffer.buffer, buffer.accessMask, buffer.stageMask,
-        dstAccessMask, dstStageMask, uniformBuffer.size, uniformBuffer.offset);
+    bufferBarrier(buffer.buffer,
+        buffer.stageMask, buffer.accessMask,
+        dstStageMask, dstAccessMask, uniformBuffer.size, uniformBuffer.offset);
 
     buffer.accessMask = dstAccessMask;
     buffer.stageMask = dstStageMask;
@@ -1575,11 +1576,11 @@ void bufferBarrier(UniformBuffer& uniformBuffer,
 
 
 void bufferBarrier(Buffer& buffer,
-     uint64_t dstAccessMask, uint64_t dstStageMask)
+     VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask)
 {
     bufferBarrier(buffer.buffer,
-        buffer.accessMask, buffer.stageMask,
-        dstAccessMask, dstStageMask,
+        buffer.stageMask, buffer.accessMask,
+        dstStageMask, dstAccessMask,
         buffer.size, 0);
 
     buffer.accessMask = dstAccessMask;
@@ -1587,8 +1588,9 @@ void bufferBarrier(Buffer& buffer,
 }
 
 void bufferBarrier(VkBuffer buffer,
-    const uint64_t srcAccessMask, const uint64_t srcStageMask,
-    const uint64_t dstAccessMask, const uint64_t dstStageMask,
+
+    const VkPipelineStageFlags2 srcStageMask, const VkAccessFlags2 srcAccessMask,
+    const VkPipelineStageFlags2 dstStageMask, const VkAccessFlags2 dstAccessMask,
     const size_t size, const size_t offset)
 {
     ASSERT(size > 0);
@@ -1640,6 +1642,7 @@ VkDescriptorSetLayout createSetLayout(const DescriptorSetLayout* descriptors, in
             .descriptorType = VkDescriptorType(layout.descriptorType),
             .descriptorCount = 1,
             .stageFlags = layout.stage, // VK_SHADER_STAGE_VERTEX_BIT;
+            .pImmutableSamplers = layout.immutableSampler ? &layout.immutableSampler : nullptr,
         };
     }
 

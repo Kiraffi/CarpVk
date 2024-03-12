@@ -12,7 +12,7 @@
 #endif
 
 #define ASSERT_STRING(STUFF, STUFFSTRING) \
-do { if (STUFF) {} else { printf("Assertion: %s\n", STUFFSTRING); DEBUG_BREAK_MACRO(); } }  while (0)
+do { if (STUFF) {} else { printf("Assertion: %s\n", STUFFSTRING); /*DEBUG_BREAK_MACRO();*/} }  while (0)
 
 #define ASSERT(STUFF) ASSERT_STRING(STUFF, #STUFF)
 

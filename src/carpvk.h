@@ -43,6 +43,13 @@ VK_HANDLE(VkDescriptorPool);
 enum VkFormat;
 enum VkImageLayout;
 enum VkColorSpaceKHR;
+enum VkDescriptorType;
+
+
+typedef uint64_t VkFlags64;
+typedef VkFlags64 VkPipelineStageFlags2;
+typedef VkFlags64 VkAccessFlags2;
+
 
 static constexpr VkPipelineColorBlendAttachmentState cDefaultBlendState = {
     .blendEnable = VK_FALSE,
@@ -147,8 +154,9 @@ struct CarpVk
 struct DescriptorSetLayout
 {
     uint32_t bindingIndex = {};
-    int32_t descriptorType = {};
+    VkDescriptorType descriptorType = {};
     uint32_t stage = {};
+    VkSampler immutableSampler = {};
 };
 
 struct DescriptorInfo
@@ -265,26 +273,26 @@ bool updateBindDescriptorSet(VkDescriptorSet descriptorSet,
 
 
 void imageBarrier(Image &image,
-    uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout);
+    VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask, VkImageLayout newLayout);
 
 void imageBarrier(Image &image,
-    uint64_t srcStageMask, uint64_t srcAccessMask, VkImageLayout oldLayout,
-    uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout);
+    VkPipelineStageFlags2 srcStageMask, VkAccessFlags2 srcAccessMask, VkImageLayout oldLayout,
+    VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask, VkImageLayout newLayout);
 
 void imageBarrier(VkImage image,
-    uint64_t srcStageMask, uint64_t srcAccessMask, VkImageLayout oldLayout,
-    uint64_t dstStageMask, uint64_t dstAccessMask, VkImageLayout newLayout,
+    VkPipelineStageFlags2 srcStageMask, VkAccessFlags2 srcAccessMask, VkImageLayout oldLayout,
+    VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask, VkImageLayout newLayout,
     uint32_t aspectMask);
 
 void bufferBarrier(UniformBuffer& buffer,
-     uint64_t dstAccessMask, uint64_t dstStageMask);
+     VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask);
 
 void bufferBarrier(Buffer& buffer,
-     uint64_t dstAccessMask, uint64_t dstStageMask);
+     VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask);
 
 void bufferBarrier(VkBuffer buffer,
-    uint64_t srcStageMask, uint64_t srcAccessMask,
-    uint64_t dstStageMask, uint64_t dstAccessMask,
+    VkPipelineStageFlags2 srcStageMask, VkAccessFlags2 srcAccessMask,
+    VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask,
     size_t size, size_t offset);
 
 bool createShader(const char* code, int codeSize, VkShaderModule& outModule);
