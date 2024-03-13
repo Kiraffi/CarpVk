@@ -1349,14 +1349,14 @@ bool createDescriptorSet(VkDescriptorSetLayout layout, VkDescriptorSet* outSet)
 
 
 
-VkImageView createImageView(VkImage image, int64_t format)
+VkImageView createImageView(VkImage image, VkFormat format)
 {
-    VkImageAspectFlags aspectMask = sGetAspectMaskFromFormat((VkFormat)format);
+    VkImageAspectFlags aspectMask = sGetAspectMaskFromFormat(format);
     
     VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
     createInfo.image = image;
     createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    createInfo.format = (VkFormat)format;
+    createInfo.format = format;
 
     //createInfo.components.r = VK_COMPONENT_SWIZZLE_R; // VK_COMPONENT_SWIZZLE_IDENTITY;
     //createInfo.components.g = VK_COMPONENT_SWIZZLE_G; //VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -1383,18 +1383,18 @@ VkImageView createImageView(VkImage image, int64_t format)
 
 
 bool createImage(uint32_t width, uint32_t height,
-    int64_t imageFormat, int64_t usage, const char* imageName,
+    VkFormat imageFormat, VkImageUsageFlags usage, const char* imageName,
     Image& outImage)
 {
     VkImageCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
     createInfo.imageType = VK_IMAGE_TYPE_2D;
-    createInfo.format = (VkFormat)imageFormat;
+    createInfo.format = imageFormat;
     createInfo.extent = { width, height, 1 };
     createInfo.mipLevels = 1;
     createInfo.arrayLayers = 1;
     createInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     createInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    createInfo.usage = (VkImageUsageFlags)usage;
+    createInfo.usage = usage;
     createInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     createInfo.queueFamilyIndexCount = 1;
     uint32_t indices[] = { (uint32_t)sVkQueueIndex };
@@ -1412,7 +1412,7 @@ bool createImage(uint32_t width, uint32_t height,
     if (!outImage.image || !outImage.allocation)
         return false;
 
-    outImage.view = createImageView(outImage.image, (VkFormat)imageFormat);
+    outImage.view = createImageView(outImage.image, imageFormat);
     ASSERT(outImage.view);
     if (!outImage.view)
         return false;
@@ -1497,6 +1497,82 @@ void uploadToUniformBuffer(UniformBuffer &uniformBuffer, const void *data, size_
     BufferCopyRegion region = sUploadToScratchBuffer(data, size);
     region.dstOffset = uniformBuffer.offset;
     sUploadScratchBufferToGpuBuffer(sVkUniformBuffer, region);
+}
+
+void uploadToImage(u32 width, u32 height, u32 pixelSize,
+    Image& targetImage,
+    u32 dataSize, void* data)
+{
+    VkCommandBuffer commandBuffer = getVkCommandBuffer();
+    int64_t frameIndex = sGetFrameIndex();
+
+    Buffer &scratchBuffer = sVkScratchBuffer[frameIndex];
+
+    ASSERT(data != nullptr || dataSize > 0u);
+    VkDeviceSize size = scratchBuffer.size;
+    ASSERT(size);
+
+    ASSERT(size >= width * height * pixelSize);
+    ASSERT(targetImage.image);
+
+    BufferCopyRegion copyRegion = sUploadToScratchBuffer(data, dataSize);
+    {
+        imageBarrier(targetImage,
+            VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        flushBarriers();
+/*
+        VkImageMemoryBarrier imageBarriers[] =
+        {
+            imageBarrier(targetImage,
+                VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL),
+        };
+
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, ARRAYSIZES(imageBarriers), imageBarriers);
+            */
+    }
+
+    VkBufferImageCopy2 region{
+        .sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2,
+        .bufferOffset = copyRegion.srcOffset,
+        .bufferRowLength = 0,
+        .bufferImageHeight = 0,
+        .imageSubresource {
+            .aspectMask = sGetAspectMaskFromFormat(targetImage.format),
+            .mipLevel = 0,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+        .imageOffset = { 0, 0, 0 },
+        .imageExtent = { width, height, 1 },
+    };
+
+    VkCopyBufferToImageInfo2 imageInfo = {
+        .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+        .srcBuffer = scratchBuffer.buffer,
+        .dstImage = targetImage.image,
+        .dstImageLayout = targetImage.layout,
+        .regionCount = 1,
+        .pRegions = &region,
+    };
+
+
+    vkCmdCopyBufferToImage2(commandBuffer, &imageInfo);
+    /*
+    vkCmdCopyBufferToImage(vulk->commandBuffer, vulk->scratchBuffer.buffer, targetImage.image,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    {
+        VkImageMemoryBarrier imageBarriers[] =
+        {
+            imageBarrier(targetImage,
+                VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL),
+        };
+
+        vkCmdPipelineBarrier(vulk->commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, ARRAYSIZES(imageBarriers), imageBarriers);
+    }
+    MyVulkan::endSingleTimeCommands();
+    */
 }
 
 
@@ -2010,11 +2086,11 @@ bool presentImage(Image& imageToPresent)
     // Blit from imageToPresent to swapchain
     {
         imageBarrier(swapchainImage,
-            (uint64_t)0, (uint64_t)0, VK_IMAGE_LAYOUT_UNDEFINED,
-            (uint64_t)VK_PIPELINE_STAGE_2_BLIT_BIT_KHR,
-            (uint64_t)VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR, 
+            VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE, VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_PIPELINE_STAGE_2_BLIT_BIT,
+            VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 
-            (uint32_t)VK_IMAGE_ASPECT_COLOR_BIT);
+            VK_IMAGE_ASPECT_COLOR_BIT);
         imageBarrier(imageToPresent,
             VK_PIPELINE_STAGE_2_TRANSFER_BIT,
             VK_ACCESS_2_TRANSFER_READ_BIT,
@@ -2262,34 +2338,6 @@ DescriptorInfo::DescriptorInfo(const UniformBuffer& buffer)
     bufferInfo.offset = buffer.offset;
     bufferInfo.range = buffer.size;
     type = DescriptorType::BUFFER;
-}
-
-
-
-void prepareGraphicsSampleWriteImage(Image &image)
-{
-    VkImageAspectFlags aspectMask = sGetAspectMaskFromFormat(image.format);
-    if(aspectMask & VK_IMAGE_ASPECT_COLOR_BIT)
-    {
-        imageBarrier(image,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    }
-    else if(aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT)
-    {
-        imageBarrier(image,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-    }
-    else
-    {
-        ASSERT(!"Unknown imagetype");
-    }
-
-
-
 }
 
 void flushBarriers()

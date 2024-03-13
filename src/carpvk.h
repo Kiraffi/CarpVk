@@ -40,13 +40,22 @@ VK_HANDLE(VkPipeline);
 VK_HANDLE(VkPipelineLayout);
 VK_HANDLE(VkDescriptorPool);
 
+typedef uint32_t VkBool32;
+typedef uint64_t VkDeviceAddress;
+typedef uint64_t VkDeviceSize;
+typedef uint32_t VkFlags;
+typedef uint64_t VkFlags64;
+typedef uint32_t VkSampleMask;
+
+
+
 enum VkFormat;
 enum VkImageLayout;
 enum VkColorSpaceKHR;
 enum VkDescriptorType;
 
+typedef VkFlags VkImageUsageFlags;
 
-typedef uint64_t VkFlags64;
 typedef VkFlags64 VkPipelineStageFlags2;
 typedef VkFlags64 VkAccessFlags2;
 
@@ -247,9 +256,9 @@ void printLayers();
 
 bool createDescriptorSet(VkDescriptorSetLayout layout, VkDescriptorSet* outSet);
 
-VkImageView createImageView(VkImage image, int64_t format);
+VkImageView createImageView(VkImage image, VkFormat format);
 bool createImage(uint32_t width, uint32_t height,
-    int64_t imageFormat, int64_t usage, const char* imageName,
+    VkFormat imageFormat, VkImageUsageFlags usage, const char* imageName,
     Image& outImage);
 
 void destroyImage(Image& image);
