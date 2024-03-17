@@ -2098,6 +2098,13 @@ bool presentImage(Image& imageToPresent)
 
         int width = imageToPresent.width;
         int height = imageToPresent.height;
+        int windowWidth = 0;
+        int windowHeight = 0;
+        sGetWindowSize(&windowWidth, &windowHeight);
+        width = windowWidth < width ? windowWidth : width;
+        height = windowHeight < height ? windowHeight : height;
+        width = width < sVkSwapchainWidth ? width : sVkSwapchainWidth;
+        height = height < sVkSwapchainHeight ? height : sVkSwapchainHeight;
 
         VkImageBlit2 imageBlitRegion = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2,
