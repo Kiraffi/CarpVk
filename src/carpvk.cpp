@@ -2449,8 +2449,10 @@ void endComputePipeline()
 
 VkSampler createSampler(const VkSamplerCreateInfo& info)
 {
+    VkSamplerCreateInfo newInfo = info;
+    newInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     VkSampler sampler = VK_NULL_HANDLE;
-    VK_CHECK_CALL(vkCreateSampler(sVkDevice, &info, nullptr, &sampler));
+    VK_CHECK_CALL(vkCreateSampler(sVkDevice, &newInfo, nullptr, &sampler));
     return sampler;
 }
 
