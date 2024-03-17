@@ -265,7 +265,7 @@ static VkImageAspectFlags sGetAspectMaskFromFormat(VkFormat format)
     return aspectMask;
 }
 
-static int64_t sGetFrameIndex()
+static int64_t sGetFrameIndexWrapped()
 {
     int64_t frameIndex = sVkFrameIndex % CarpVk::FramesInFlight;
     frameIndex += CarpVk::FramesInFlight;
@@ -979,7 +979,7 @@ static bool sResizeSwapchain()
 
 static BufferCopyRegion sUploadToScratchBuffer(const void *data, size_t size)
 {
-    int64_t frameIndex = sGetFrameIndex();
+    int64_t frameIndex = sGetFrameIndexWrapped();
 
     Buffer &scratchBuffer = sVkScratchBuffer[frameIndex];
     ASSERT(scratchBuffer.data);
@@ -1001,7 +1001,7 @@ static BufferCopyRegion sUploadToScratchBuffer(const void *data, size_t size)
 
 static void sUploadScratchBufferToGpuBuffer(Buffer &gpuBuffer, const BufferCopyRegion &region)
 {
-    int64_t frameIndex = sGetFrameIndex();
+    int64_t frameIndex = sGetFrameIndexWrapped();
     Buffer &scratchBuffer = sVkScratchBuffer[frameIndex];
     ASSERT(scratchBuffer.data);
     ASSERT(region.srcOffset + region.size <= scratchBuffer.size);
@@ -1500,11 +1500,10 @@ void uploadToUniformBuffer(UniformBuffer &uniformBuffer, const void *data, size_
 }
 
 void uploadToImage(u32 width, u32 height, u32 pixelSize,
-    Image& targetImage,
-    u32 dataSize, void* data)
+    Image& targetImage, void* data, u32 dataSize)
 {
     VkCommandBuffer commandBuffer = getVkCommandBuffer();
-    int64_t frameIndex = sGetFrameIndex();
+    int64_t frameIndex = sGetFrameIndexWrapped();
 
     Buffer &scratchBuffer = sVkScratchBuffer[frameIndex];
 
@@ -1520,16 +1519,6 @@ void uploadToImage(u32 width, u32 height, u32 pixelSize,
         imageBarrier(targetImage,
             VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         flushBarriers();
-/*
-        VkImageMemoryBarrier imageBarriers[] =
-        {
-            imageBarrier(targetImage,
-                VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL),
-        };
-
-        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-            VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, ARRAYSIZES(imageBarriers), imageBarriers);
-            */
     }
 
     VkBufferImageCopy2 region{
@@ -1548,7 +1537,7 @@ void uploadToImage(u32 width, u32 height, u32 pixelSize,
     };
 
     VkCopyBufferToImageInfo2 imageInfo = {
-        .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+        .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2,
         .srcBuffer = scratchBuffer.buffer,
         .dstImage = targetImage.image,
         .dstImageLayout = targetImage.layout,
@@ -1556,23 +1545,7 @@ void uploadToImage(u32 width, u32 height, u32 pixelSize,
         .pRegions = &region,
     };
 
-
     vkCmdCopyBufferToImage2(commandBuffer, &imageInfo);
-    /*
-    vkCmdCopyBufferToImage(vulk->commandBuffer, vulk->scratchBuffer.buffer, targetImage.image,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-    {
-        VkImageMemoryBarrier imageBarriers[] =
-        {
-            imageBarrier(targetImage,
-                VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_GENERAL),
-        };
-
-        vkCmdPipelineBarrier(vulk->commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, ARRAYSIZES(imageBarriers), imageBarriers);
-    }
-    MyVulkan::endSingleTimeCommands();
-    */
 }
 
 
@@ -1797,7 +1770,7 @@ VkDevice_T* getVkDevice()
 
 VkCommandBuffer_T* getVkCommandBuffer()
 {
-    int64_t frameIndex = sGetFrameIndex();
+    int64_t frameIndex = sGetFrameIndexWrapped();
     VkCommandBuffer commandBuffer = sVkCommandBuffers[frameIndex];
     return commandBuffer;
 }
@@ -2022,7 +1995,7 @@ bool beginFrame()
     VkDevice device = getVkDevice();
 
     sVkFrameIndex++;
-    int64_t frameIndex = sGetFrameIndex();
+    int64_t frameIndex = sGetFrameIndexWrapped();
     {
         //ScopedTimer aq("Acquire");
         VK_CHECK_CALL(vkWaitForFences(device, 1, &sVkFences[frameIndex], VK_TRUE, UINT64_MAX));
@@ -2078,7 +2051,7 @@ bool presentImage(Image& imageToPresent)
 {
     VkDevice device = getVkDevice();
 
-    int64_t frameIndex = sGetFrameIndex();
+    int64_t frameIndex = sGetFrameIndexWrapped();
     VkCommandBuffer commandBuffer = getVkCommandBuffer();
 
     VkImage swapchainImage = sVkSwapchainImages[sVkImageIndex];
@@ -2247,7 +2220,7 @@ void beginPreFrame()
 {
     sVkScratchBufferOffset = 0;
 
-    int64_t frameIndex = sGetFrameIndex();
+    int64_t frameIndex = sGetFrameIndexWrapped();
     VkCommandBuffer commandBuffer = getVkCommandBuffer();
 
     VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
@@ -2261,7 +2234,7 @@ void beginPreFrame()
 void endPreFrame()
 {
     flushBarriers();
-    int64_t frameIndex = sGetFrameIndex();
+    int64_t frameIndex = sGetFrameIndexWrapped();
     VkCommandBuffer commandBuffer = getVkCommandBuffer();
 
     VK_CHECK_CALL(vkEndCommandBuffer(commandBuffer));
@@ -2442,4 +2415,17 @@ void endComputePipeline()
 
 }
 
+VkSampler createSampler(const VkSamplerCreateInfo& info)
+{
+    VkSampler sampler = VK_NULL_HANDLE;
+    VK_CHECK_CALL(vkCreateSampler(sVkDevice, &info, nullptr, &sampler));
+    return sampler;
+}
+
+void destroySampler(VkSampler& sampler)
+{
+    if(sampler)
+        vkDestroySampler(sVkDevice, sampler, nullptr);
+    sampler = {};
+}
 

@@ -40,6 +40,8 @@ VK_HANDLE(VkPipeline);
 VK_HANDLE(VkPipelineLayout);
 VK_HANDLE(VkDescriptorPool);
 
+VK_HANDLE(VkSampler);
+
 typedef uint32_t VkBool32;
 typedef uint64_t VkDeviceAddress;
 typedef uint64_t VkDeviceSize;
@@ -58,6 +60,9 @@ typedef VkFlags VkImageUsageFlags;
 
 typedef VkFlags64 VkPipelineStageFlags2;
 typedef VkFlags64 VkAccessFlags2;
+
+
+struct VkSamplerCreateInfo;
 
 
 static constexpr VkPipelineColorBlendAttachmentState cDefaultBlendState = {
@@ -272,6 +277,8 @@ void destroyBuffer(Buffer& buffer);
 void uploadToGpuBuffer(Buffer &gpuBuffer, const void *data, size_t dstOffset, size_t size);
 void uploadToUniformBuffer(UniformBuffer &uniformBuffer, const void *data, size_t size);
 
+void uploadToImage(u32 width, u32 height, u32 pixelSize,
+    Image& targetImage, void* data, u32 dataSize);
 
 bool updateBindDescriptorSet(VkDescriptorSet descriptorSet,
     const DescriptorSetLayout* descriptorSetLayout,
@@ -314,6 +321,9 @@ void destroyShaderModule(VkShaderModule* shaderModules, int32_t shaderModuleCoun
 void destroyPipeline(VkPipeline* pipelines, int32_t pipelineCount);
 void destroyPipelineLayouts(VkPipelineLayout* pipelineLayouts, int32_t pipelineLayoutCount);
 void destroyDescriptorPools(VkDescriptorPool* pools, int32_t poolCount);
+
+VkSampler createSampler(const VkSamplerCreateInfo& info);
+void destroySampler(VkSampler &sampler);
 
 VkInstance getVkInstance();
 VkDevice getVkDevice();
