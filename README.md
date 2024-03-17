@@ -2,4 +2,4 @@
  Vulkan base
 
 ## Uses
-- Nothing 
+- Vulkan memory allocator (https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) 
