@@ -1014,8 +1014,8 @@ static void sUploadScratchBufferToGpuBuffer(Buffer &gpuBuffer, const BufferCopyR
         .dstOffset = region.dstOffset,
         .size = VkDeviceSize(region.size)
     };
-    vkCmdCopyBuffer(getVkCommandBuffer(), scratchBuffer.buffer, gpuBuffer.buffer, 1, &copyRegion);
-    
+
+
     VkBufferMemoryBarrier2 copyBufferBarrier = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
         .srcStageMask = gpuBuffer.stageMask,
@@ -1030,6 +1030,10 @@ static void sUploadScratchBufferToGpuBuffer(Buffer &gpuBuffer, const BufferCopyR
     };
 
     sVkBufferBarriers.push_back(copyBufferBarrier);
+    flushBarriers();
+
+    vkCmdCopyBuffer(getVkCommandBuffer(), scratchBuffer.buffer, gpuBuffer.buffer, 1, &copyRegion);
+    
 
     gpuBuffer.stageMask = copyBufferBarrier.dstStageMask;
     gpuBuffer.accessMask = copyBufferBarrier.dstAccessMask;
@@ -2053,15 +2057,6 @@ bool beginFrame()
     VkCommandBuffer commandBuffer = getVkCommandBuffer();
     VK_CHECK_CALL(vkBeginCommandBuffer(commandBuffer, &beginInfo));
 
-    for(Image* image : sAllRenderTargetImages)
-    {
-        image->stageMask = VK_PIPELINE_STAGE_2_NONE;
-        image->accessMask = VK_ACCESS_2_NONE;
-        image->layout = VK_IMAGE_LAYOUT_UNDEFINED;
-    }
-    
-
-
     //vkCmdResetQueryPool(vulk->commandBuffer, vulk->queryPools[vulk->frameIndex], 0, QUERY_COUNT);
     //vulk->currentStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
 
@@ -2084,13 +2079,13 @@ bool presentImage(Image& imageToPresent)
     // Blit from imageToPresent to swapchain
     {
         imageBarrier(swapchainImage,
-            VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE, VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, VK_ACCESS_2_NONE, VK_IMAGE_LAYOUT_UNDEFINED,
             VK_PIPELINE_STAGE_2_BLIT_BIT,
-            VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 
+            VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             VK_IMAGE_ASPECT_COLOR_BIT);
         imageBarrier(imageToPresent,
-            VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_2_BLIT_BIT,
             VK_ACCESS_2_TRANSFER_READ_BIT,
             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
@@ -2098,11 +2093,7 @@ bool presentImage(Image& imageToPresent)
 
         int width = imageToPresent.width;
         int height = imageToPresent.height;
-        int windowWidth = 0;
-        int windowHeight = 0;
-        sGetWindowSize(&windowWidth, &windowHeight);
-        width = windowWidth < width ? windowWidth : width;
-        height = windowHeight < height ? windowHeight : height;
+
         width = width < sVkSwapchainWidth ? width : sVkSwapchainWidth;
         height = height < sVkSwapchainHeight ? height : sVkSwapchainHeight;
 
@@ -2123,7 +2114,7 @@ bool presentImage(Image& imageToPresent)
         },
         .dstOffsets = {
                 VkOffset3D{ 0, 0, 0 },
-                VkOffset3D{ width, height, 1 },
+                VkOffset3D{ sVkSwapchainWidth, sVkSwapchainHeight, 1 },
         }
 
 
@@ -2147,8 +2138,8 @@ bool presentImage(Image& imageToPresent)
     {
         VkImageMemoryBarrier2 presentBarrier = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-            .srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT_KHR,
-            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT_KHR,
+            .srcStageMask = VK_PIPELINE_STAGE_2_BLIT_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
             .dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
             .dstAccessMask = VK_ACCESS_2_NONE,
             .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -2161,8 +2152,9 @@ bool presentImage(Image& imageToPresent)
                 .layerCount = 1,
             },
         };
-        VkDependencyInfoKHR dep2 = {};
-        dep2.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR;
+
+        VkDependencyInfo dep2 = {};
+        dep2.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep2.imageMemoryBarrierCount = 1;
         dep2.pImageMemoryBarriers = &presentBarrier;
         vkCmdPipelineBarrier2(commandBuffer, &dep2);
@@ -2185,18 +2177,18 @@ bool presentImage(Image& imageToPresent)
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
             .commandBuffer = commandBuffer,
         };
-
+        
 
         VkSemaphoreSubmitInfo acquireCompleteInfo = {
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
             .semaphore = acquireSemaphore,
-            .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
+            .stageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT
         };
 
         VkSemaphoreSubmitInfo renderingCompleteInfo = {
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
             .semaphore = releaseSemaphore,
-            .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
+            .stageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT
         };
 
         VkSubmitInfo2 submitInfo = {
@@ -2463,3 +2455,7 @@ void destroySampler(VkSampler& sampler)
     sampler = {};
 }
 
+Buffer& getUniformBuffer()
+{
+    return sVkUniformBuffer;
+}

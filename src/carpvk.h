@@ -287,7 +287,6 @@ bool updateBindDescriptorSet(VkDescriptorSet descriptorSet,
 
 
 
-
 void imageBarrier(Image &image,
     VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask, VkImageLayout newLayout);
 
@@ -356,3 +355,5 @@ void beginComputePipeline(VkPipelineLayout pipelineLayout, VkPipeline pipeline, 
 void endComputePipeline();
 
 void flushBarriers();
+
+Buffer& getUniformBuffer();
