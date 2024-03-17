@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <string.h>
+
+#include <fstream>
 #include <vector>
 
 #include <vulkan/vulkan_core.h>
@@ -1673,6 +1675,29 @@ bool createShader(const char* code, int codeSize, VkShaderModule& outModule)
 
     return true;
 }
+
+bool createShader(const char* filename, VkShaderModule& outModule)
+{
+    std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+    if (!file.is_open())
+    {
+        printf("Failed to load file: %s\n", filename);
+        return false;
+    }
+
+    std::vector<char> buffer;
+
+    std::streamsize fileSize = file.tellg();
+    buffer.resize(fileSize);
+    file.seekg(0);
+    file.read(buffer.data(), fileSize);
+    file.close();
+
+    return createShader(buffer.data(), (int)buffer.size(), outModule);
+
+}
+
 
 VkDescriptorSetLayout createSetLayout(const DescriptorSetLayout* descriptors, int32_t count)
 {

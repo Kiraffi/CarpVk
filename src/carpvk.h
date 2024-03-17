@@ -312,6 +312,7 @@ void bufferBarrier(VkBuffer buffer,
     size_t size, size_t offset);
 
 bool createShader(const char* code, int codeSize, VkShaderModule& outModule);
+bool createShader(const char* filename, VkShaderModule& outModule);
 
 
 VkDescriptorSetLayout createSetLayout(const DescriptorSetLayout* descriptors, int32_t count);
