@@ -4,6 +4,16 @@
 
 static constexpr size_t SizeOfVoidPtr = sizeof(size_t);
 
+
+#if INTPTR_MAX == INT32_MAX
+#define ENV_32_BITS
+#elif INTPTR_MAX == INT64_MAX
+#define ENV_64_BITS
+#else
+#error "Environment not 32 or 64-bit."
+#endif
+
+
 #if (defined __x86_64__ && !defined __ILP32__ || (_WIN64))
 #define VK_HANDLE(handleName) typedef struct handleName##_T* handleName
 #else
