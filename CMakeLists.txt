@@ -25,7 +25,7 @@ add_library(carpvk OBJECT
         src/carpvk.cpp
         src/carpvk.h
         src/common.h
-)
+ "src/carpvkcommon.h")
 
 
 add_subdirectory("external/VulkanMemoryAllocator")
