@@ -2,9 +2,9 @@
 
 #include <stdint.h>
 
-static constexpr size_t SizeOfVoidPtr = sizeof(void*);
+static constexpr size_t SizeOfVoidPtr = sizeof(size_t);
 
-#if (defined __x86_64__ && !defined __ILP32__ || (SizeOfVoidPt == 8))
+#if (defined __x86_64__ && !defined __ILP32__ || (_WIN64))
 #define VK_HANDLE(handleName) typedef struct handleName##_T* handleName
 #else
 #define VK_HANDLE(handleName) typedef uint64_t handleName
