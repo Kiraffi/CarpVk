@@ -280,3 +280,4 @@ void endComputePipeline();
 void flushBarriers();
 
 Buffer& getUniformBuffer();
+int64_t getFrameIndexWrapped();

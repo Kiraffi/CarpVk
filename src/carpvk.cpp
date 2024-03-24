@@ -267,13 +267,6 @@ static VkImageAspectFlags sGetAspectMaskFromFormat(VkFormat format)
     return aspectMask;
 }
 
-static int64_t sGetFrameIndexWrapped()
-{
-    int64_t frameIndex = sVkFrameIndex % CarpVk::FramesInFlight;
-    frameIndex += CarpVk::FramesInFlight;
-    frameIndex %= CarpVk::FramesInFlight;
-    return frameIndex;
-}
 
 static SwapChainSupportDetails sQuerySwapChainSupport(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
 {
@@ -714,6 +707,7 @@ FoundSwapChain:
         .synchronization2 = VK_TRUE,
         .dynamicRendering = VK_TRUE,
     };
+    /*
     static constexpr VkPhysicalDeviceVulkan12Features deviceFeatures12 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .pNext = (void *) &deviceFeatures13,
@@ -726,10 +720,10 @@ FoundSwapChain:
         .descriptorBindingUpdateUnusedWhilePending = VK_TRUE,
         .descriptorBindingPartiallyBound = VK_TRUE,
     };
-
+*/
     static constexpr VkPhysicalDeviceFeatures2 physicalDeviceFeatures2 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext = (void *) &deviceFeatures12,
+        .pNext = (void *) &deviceFeatures13,
         .features = deviceFeatures,
     };
 
@@ -939,7 +933,7 @@ static bool sCreateDescriptorPool()
     poolInfo.poolSizeCount = ARRAYSIZES(poolSizes);
     poolInfo.pPoolSizes = poolSizes;
     poolInfo.maxSets = MAX_SIZES;
-    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+    //poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
     VkResult result = vkCreateDescriptorPool(device, &poolInfo, nullptr, &sVkDescriptorPool);
     VK_CHECK_CALL(result);
     return result == VK_SUCCESS;
@@ -1002,7 +996,7 @@ static bool sResizeSwapchain()
 
 static BufferCopyRegion sUploadToScratchBuffer(const void *data, size_t size)
 {
-    int64_t frameIndex = sGetFrameIndexWrapped();
+    int64_t frameIndex = getFrameIndexWrapped();
 
     Buffer &scratchBuffer = sVkScratchBuffer[frameIndex];
     ASSERT(scratchBuffer.data);
@@ -1024,7 +1018,7 @@ static BufferCopyRegion sUploadToScratchBuffer(const void *data, size_t size)
 
 static void sUploadScratchBufferToGpuBuffer(Buffer &gpuBuffer, const BufferCopyRegion &region)
 {
-    int64_t frameIndex = sGetFrameIndexWrapped();
+    int64_t frameIndex = getFrameIndexWrapped();
     Buffer &scratchBuffer = sVkScratchBuffer[frameIndex];
     ASSERT(scratchBuffer.data);
     ASSERT(region.srcOffset + region.size <= scratchBuffer.size);
@@ -1530,7 +1524,7 @@ void uploadToImage(u32 width, u32 height, u32 pixelSize,
     Image& targetImage, void* data, u32 dataSize)
 {
     VkCommandBuffer commandBuffer = getVkCommandBuffer();
-    int64_t frameIndex = sGetFrameIndexWrapped();
+    int64_t frameIndex = getFrameIndexWrapped();
 
     Buffer &scratchBuffer = sVkScratchBuffer[frameIndex];
 
@@ -1731,7 +1725,7 @@ VkDescriptorSetLayout createSetLayout(const DescriptorSetLayout* descriptors, in
 
 
     VkDescriptorSetLayoutBinding setBindings[16] = {};
-    VkDescriptorBindingFlags setBindingFlags[16] = {};
+    //VkDescriptorBindingFlags setBindingFlags[16] = {};
 
     for (int32_t i = 0; i < count; ++i)
     {
@@ -1745,20 +1739,20 @@ VkDescriptorSetLayout createSetLayout(const DescriptorSetLayout* descriptors, in
             .pImmutableSamplers = layout.immutableSampler ? &layout.immutableSampler : nullptr,
         };
 
-        setBindingFlags[i] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+        //setBindingFlags[i] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
     }
-
+/*
     VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlags = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
         .pNext = nullptr,
         .bindingCount = uint32_t(count),
         .pBindingFlags = setBindingFlags,
     };
-
+*/
     VkDescriptorSetLayoutCreateInfo createInfo = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .pNext = &bindingFlags,
-        .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
+        //.pNext = &bindingFlags,
+        //.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
         .bindingCount = uint32_t(count),
         .pBindings = setBindings,
     };
@@ -1842,7 +1836,7 @@ VkDevice_T* getVkDevice()
 
 VkCommandBuffer_T* getVkCommandBuffer()
 {
-    int64_t frameIndex = sGetFrameIndexWrapped();
+    int64_t frameIndex = getFrameIndexWrapped();
     VkCommandBuffer commandBuffer = sVkCommandBuffers[frameIndex];
     return commandBuffer;
 }
@@ -2067,7 +2061,7 @@ bool beginFrame()
     VkDevice device = getVkDevice();
 
     sVkFrameIndex++;
-    int64_t frameIndex = sGetFrameIndexWrapped();
+    int64_t frameIndex = getFrameIndexWrapped();
     {
         //ScopedTimer aq("Acquire");
         VK_CHECK_CALL(vkWaitForFences(device, 1, &sVkFences[frameIndex], VK_TRUE, UINT64_MAX));
@@ -2114,7 +2108,7 @@ bool presentImage(Image& imageToPresent)
 {
     VkDevice device = getVkDevice();
 
-    int64_t frameIndex = sGetFrameIndexWrapped();
+    int64_t frameIndex = getFrameIndexWrapped();
     VkCommandBuffer commandBuffer = getVkCommandBuffer();
 
     VkImage swapchainImage = sVkSwapchainImages[sVkImageIndex];
@@ -2287,7 +2281,7 @@ void beginPreFrame()
 {
     sVkScratchBufferOffset = 0;
 
-    int64_t frameIndex = sGetFrameIndexWrapped();
+    int64_t frameIndex = getFrameIndexWrapped();
     VkCommandBuffer commandBuffer = getVkCommandBuffer();
 
     VkCommandBufferBeginInfo beginInfo{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
@@ -2301,7 +2295,7 @@ void beginPreFrame()
 void endPreFrame()
 {
     flushBarriers();
-    int64_t frameIndex = sGetFrameIndexWrapped();
+    int64_t frameIndex = getFrameIndexWrapped();
     VkCommandBuffer commandBuffer = getVkCommandBuffer();
 
     VK_CHECK_CALL(vkEndCommandBuffer(commandBuffer));
@@ -2501,4 +2495,12 @@ void destroySampler(VkSampler& sampler)
 Buffer& getUniformBuffer()
 {
     return sVkUniformBuffer;
+}
+
+int64_t getFrameIndexWrapped()
+{
+    int64_t frameIndex = sVkFrameIndex % CarpVk::FramesInFlight;
+    frameIndex += CarpVk::FramesInFlight;
+    frameIndex %= CarpVk::FramesInFlight;
+    return frameIndex;
 }
