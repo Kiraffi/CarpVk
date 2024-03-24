@@ -83,7 +83,7 @@ struct CarpSwapChainFormats
 
 struct CarpVk
 {
-    static const int FramesInFlight = 4;
+    static const int FramesInFlight = 1;
     static const int QueryCount = 128;
 };
 
@@ -151,9 +151,9 @@ struct GPBuilder
     VkCompareOp depthCompareOp = VK_COMPARE_OP_LESS;
     VkPipelineLayout pipelineLayout = {};
 
-    int stageInfoCount = 0;
-    uint32_t colorFormatCount = 0;
-    uint32_t blendChannelCount = 0;
+    int32_t stageInfoCount = 0;
+    int32_t colorFormatCount = 0;
+    int32_t blendChannelCount = 0;
 
     bool depthTest = false;
     bool writeDepth = false;
@@ -240,8 +240,9 @@ VkDescriptorSetLayout createSetLayout(const DescriptorSetLayout* descriptors, in
 
 VkPipelineLayout createPipelineLayout(const VkDescriptorSetLayout descriptorSetLayout);
 void destroyShaderModule(VkShaderModule* shaderModules, int32_t shaderModuleCount);
-void destroyPipeline(VkPipeline* pipelines, int32_t pipelineCount);
+void destroyPipelines(VkPipeline* pipelines, int32_t pipelineCount);
 void destroyPipelineLayouts(VkPipelineLayout* pipelineLayouts, int32_t pipelineLayoutCount);
+void destroyDescriptorSetLayouts(VkDescriptorSetLayout* layouts, int32_t amount);
 void destroyDescriptorPools(VkDescriptorPool* pools, int32_t poolCount);
 
 VkSampler createSampler(const VkSamplerCreateInfo& info);

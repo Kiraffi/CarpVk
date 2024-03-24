@@ -696,9 +696,17 @@ FoundSwapChain:
     queueCreateInfo.queueCount = 1;
     queueCreateInfo.pQueuePriorities = &queuePriority;
 
+    /*
+    VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
+        .pNext = nullptr,
+    };
+    */
+
     static constexpr VkPhysicalDeviceFeatures deviceFeatures = {
         .fillModeNonSolid = VK_TRUE,
         .samplerAnisotropy = VK_FALSE,
+
     };
     static constexpr VkPhysicalDeviceVulkan13Features deviceFeatures13 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
@@ -706,10 +714,22 @@ FoundSwapChain:
         .synchronization2 = VK_TRUE,
         .dynamicRendering = VK_TRUE,
     };
+    static constexpr VkPhysicalDeviceVulkan12Features deviceFeatures12 = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+        .pNext = (void *) &deviceFeatures13,
+        .descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE,
+        .descriptorBindingSampledImageUpdateAfterBind = VK_TRUE,
+        .descriptorBindingStorageImageUpdateAfterBind = VK_TRUE,
+        .descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE,
+        .descriptorBindingUniformTexelBufferUpdateAfterBind = VK_TRUE,
+        .descriptorBindingStorageTexelBufferUpdateAfterBind = VK_TRUE,
+        .descriptorBindingUpdateUnusedWhilePending = VK_TRUE,
+        .descriptorBindingPartiallyBound = VK_TRUE,
+    };
 
     static constexpr VkPhysicalDeviceFeatures2 physicalDeviceFeatures2 = {
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext = (void *) &deviceFeatures13,
+        .pNext = (void *) &deviceFeatures12,
         .features = deviceFeatures,
     };
 
@@ -919,6 +939,7 @@ static bool sCreateDescriptorPool()
     poolInfo.poolSizeCount = ARRAYSIZES(poolSizes);
     poolInfo.pPoolSizes = poolSizes;
     poolInfo.maxSets = MAX_SIZES;
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
     VkResult result = vkCreateDescriptorPool(device, &poolInfo, nullptr, &sVkDescriptorPool);
     VK_CHECK_CALL(result);
     return result == VK_SUCCESS;
@@ -1710,6 +1731,7 @@ VkDescriptorSetLayout createSetLayout(const DescriptorSetLayout* descriptors, in
 
 
     VkDescriptorSetLayoutBinding setBindings[16] = {};
+    VkDescriptorBindingFlags setBindingFlags[16] = {};
 
     for (int32_t i = 0; i < count; ++i)
     {
@@ -1722,11 +1744,22 @@ VkDescriptorSetLayout createSetLayout(const DescriptorSetLayout* descriptors, in
             .stageFlags = layout.stage, // VK_SHADER_STAGE_VERTEX_BIT;
             .pImmutableSamplers = layout.immutableSampler ? &layout.immutableSampler : nullptr,
         };
+
+        setBindingFlags[i] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
     }
+
+    VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlags = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO,
+        .pNext = nullptr,
+        .bindingCount = uint32_t(count),
+        .pBindingFlags = setBindingFlags,
+    };
 
     VkDescriptorSetLayoutCreateInfo createInfo = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = u32(count),
+        .pNext = &bindingFlags,
+        .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT,
+        .bindingCount = uint32_t(count),
         .pBindings = setBindings,
     };
 
@@ -1757,7 +1790,7 @@ VkPipelineLayout createPipelineLayout(const VkDescriptorSetLayout descriptorSetL
     return result;
 }
 
-void destroyPipeline(VkPipeline* pipelines, int32_t pipelineCount)
+void destroyPipelines(VkPipeline* pipelines, int32_t pipelineCount)
 {
     for (int32_t i = 0; i < pipelineCount; ++i)
     {
@@ -1774,6 +1807,16 @@ void destroyPipelineLayouts(VkPipelineLayout* pipelineLayouts, int32_t pipelineL
         pipelineLayouts[i] = {};
     }
 }
+
+void destroyDescriptorSetLayouts(VkDescriptorSetLayout* layouts, int32_t amount)
+{
+    for (int32_t i = 0; i < amount; ++i)
+    {
+        vkDestroyDescriptorSetLayout(sVkDevice, layouts[i], nullptr);
+        layouts[i] = {};
+    }
+}
+
 
 void destroyDescriptorPools(VkDescriptorPool* pools, int32_t poolCount)
 {
@@ -1853,7 +1896,7 @@ VkPipeline createGraphicsPipeline(const GPBuilder& builder, const char* pipeline
 
     VkPipelineColorBlendStateCreateInfo blendInfo = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-        .attachmentCount = builder.blendChannelCount,
+        .attachmentCount = (uint32_t)builder.blendChannelCount,
         .pAttachments = builder.blendChannels,
     };
 
@@ -1883,7 +1926,7 @@ VkPipeline createGraphicsPipeline(const GPBuilder& builder, const char* pipeline
 
     const VkPipelineRenderingCreateInfo pipelineRenderingCreateInfo{
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR,
-        .colorAttachmentCount = builder.colorFormatCount,
+        .colorAttachmentCount = (uint32_t)builder.colorFormatCount,
         .pColorAttachmentFormats = builder.colorFormats,
         .depthAttachmentFormat = builder.depthFormat,
     };
@@ -1923,11 +1966,11 @@ bool updateBindDescriptorSet(VkDescriptorSet descriptorSet,
     const DescriptorInfo* descriptorSetInfos, int descriptorSetCount)
 {
     constexpr static int MAX_DESCRIPTOR_COUNT = 32;
-    ASSERT(descriptorSetCount <= MAX_DESCRIPTOR_COUNT);
-    ASSERT(descriptorSetCount > 0);
-    ASSERT(descriptorSetLayout);
-    ASSERT(descriptorSet);
-    ASSERT(descriptorSetInfos);
+    ASSERT_RETURN_IF_FALSE(descriptorSetCount <= MAX_DESCRIPTOR_COUNT);
+    ASSERT_RETURN_IF_FALSE(descriptorSetCount > 0);
+    ASSERT_RETURN_IF_FALSE(descriptorSetLayout);
+    ASSERT_RETURN_IF_FALSE(descriptorSet);
+    ASSERT_RETURN_IF_FALSE(descriptorSetInfos);
 
     if(descriptorSetCount == 0)
     {
@@ -1954,7 +1997,7 @@ bool updateBindDescriptorSet(VkDescriptorSet descriptorSet,
             VkWriteDescriptorSet descriptor{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             descriptor.dstSet = descriptorSet;
             descriptor.dstArrayElement = 0;
-            descriptor.descriptorType = (VkDescriptorType)descriptorSetLayout[i].descriptorType;
+            descriptor.descriptorType = descriptorSetLayout[i].descriptorType;
             descriptor.dstBinding = descriptorSetLayout[i].bindingIndex;
             descriptor.pBufferInfo = &bufferInfos[bufferCount];
             descriptor.descriptorCount = 1;
@@ -1967,16 +2010,16 @@ bool updateBindDescriptorSet(VkDescriptorSet descriptorSet,
         else if(descriptorSetInfos[i].type == DescriptorInfo::DescriptorType::IMAGE)
         {
             const VkDescriptorImageInfo &imageInfo = descriptorSetInfos[i].imageInfo;
-            ASSERT(imageInfo.sampler || descriptorSetLayout[i].descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-            ASSERT(imageInfo.imageView);
-            ASSERT(imageInfo.imageLayout);
+            ASSERT_RETURN_IF_FALSE(imageInfo.sampler || descriptorSetLayout[i].descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+            ASSERT_RETURN_IF_FALSE(imageInfo.imageView);
+            ASSERT_RETURN_IF_FALSE(imageInfo.imageLayout);
 
             imageInfos[imageCount] = imageInfo;
 
             VkWriteDescriptorSet descriptor{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
             descriptor.dstSet = descriptorSet;
             descriptor.dstArrayElement = 0;
-            descriptor.descriptorType = (VkDescriptorType)descriptorSetLayout[i].descriptorType;
+            descriptor.descriptorType = descriptorSetLayout[i].descriptorType;
             descriptor.dstBinding = descriptorSetLayout[i].bindingIndex;
             descriptor.pImageInfo = &imageInfos[imageCount];
             descriptor.descriptorCount = 1;

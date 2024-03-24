@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 static constexpr size_t SizeOfVoidPtr = sizeof(size_t);
@@ -58,8 +59,7 @@ typedef uint32_t VkFlags;
 typedef uint64_t VkFlags64;
 typedef uint32_t VkSampleMask;
 
-
-
+// Need to include vulkan_core.h before this file if using any of the enums
 enum VkFormat;
 enum VkImageLayout;
 enum VkColorSpaceKHR;
