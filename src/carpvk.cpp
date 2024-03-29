@@ -1029,29 +1029,9 @@ static void sUploadScratchBufferToGpuBuffer(Buffer &gpuBuffer, const BufferCopyR
         .dstOffset = region.dstOffset,
         .size = VkDeviceSize(region.size)
     };
-
-
-    VkBufferMemoryBarrier2 copyBufferBarrier = {
-        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-        .srcStageMask = gpuBuffer.stageMask,
-        .srcAccessMask = gpuBuffer.accessMask,
-        .dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT,
-        .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-        .srcQueueFamilyIndex = sVkQueueIndex,
-        .dstQueueFamilyIndex = sVkQueueIndex,
-        .buffer = gpuBuffer.buffer,
-        .offset = region.dstOffset,
-        .size = region.size,
-    };
-
-    sVkBufferBarriers.push_back(copyBufferBarrier);
+    bufferBarrier(gpuBuffer, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
     flushBarriers();
-
     vkCmdCopyBuffer(getVkCommandBuffer(), scratchBuffer.buffer, gpuBuffer.buffer, 1, &copyRegion);
-    
-
-    gpuBuffer.stageMask = copyBufferBarrier.dstStageMask;
-    gpuBuffer.accessMask = copyBufferBarrier.dstAccessMask;
 }
 
 
@@ -1589,6 +1569,8 @@ void destroyBuffer(Buffer& buffer)
 void imageBarrier(Image& image,
     VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask, VkImageLayout newLayout)
 {
+    if(image.accessMask == dstAccessMask && image.layout == newLayout && image.stageMask == dstStageMask)
+        return;
     imageBarrier(image, image.stageMask, image.accessMask, image.layout,
         dstStageMask, dstAccessMask, newLayout);
 }
@@ -1597,6 +1579,10 @@ void imageBarrier(Image& image,
     VkPipelineStageFlags2 srcStageMask, VkAccessFlags2 srcAccessMask, VkImageLayout oldLayout,
     VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask, VkImageLayout newLayout)
 {
+    if(image.accessMask == dstAccessMask && image.layout == newLayout && image.stageMask == dstStageMask)
+        return;
+
+
     VkImageAspectFlags aspectMask = sGetAspectMaskFromFormat((VkFormat)image.format);
     imageBarrier(image.image, srcStageMask, srcAccessMask, oldLayout,
         dstStageMask, dstAccessMask, newLayout, aspectMask);
@@ -1610,7 +1596,7 @@ void imageBarrier(VkImage image,
     VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask, VkImageLayout newLayout,
     uint32_t aspectMask)
 {
-    if(srcAccessMask == dstAccessMask && oldLayout == newLayout)
+    if(srcAccessMask == dstAccessMask && oldLayout == newLayout && srcStageMask == dstStageMask)
         return;
 
     VkImageMemoryBarrier2 barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
@@ -1636,6 +1622,10 @@ void bufferBarrier(UniformBuffer& uniformBuffer,
      VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask)
 {
     Buffer& buffer = sVkUniformBuffer;
+    if(buffer.stageMask == dstStageMask && buffer.accessMask == dstAccessMask)
+    {
+        return;
+    }
     bufferBarrier(buffer.buffer,
         buffer.stageMask, buffer.accessMask,
         dstStageMask, dstAccessMask, uniformBuffer.size, uniformBuffer.offset);
@@ -1648,6 +1638,10 @@ void bufferBarrier(UniformBuffer& uniformBuffer,
 void bufferBarrier(Buffer& buffer,
      VkPipelineStageFlags2 dstStageMask, VkAccessFlags2 dstAccessMask)
 {
+    if(buffer.stageMask == dstStageMask && buffer.accessMask == dstAccessMask)
+    {
+        return;
+    }
     bufferBarrier(buffer.buffer,
         buffer.stageMask, buffer.accessMask,
         dstStageMask, dstAccessMask,
@@ -1663,6 +1657,9 @@ void bufferBarrier(VkBuffer buffer,
     const VkPipelineStageFlags2 dstStageMask, const VkAccessFlags2 dstAccessMask,
     const size_t size, const size_t offset)
 {
+    if(srcAccessMask == dstAccessMask && srcStageMask == dstStageMask)
+        return;
+
     ASSERT(size > 0);
     VkBufferMemoryBarrier2 bufferBarrier = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,

@@ -83,7 +83,7 @@ struct CarpSwapChainFormats
 
 struct CarpVk
 {
-    static const int FramesInFlight = 1;
+    static const int FramesInFlight = 4;
     static const int QueryCount = 128;
 };
 
@@ -181,30 +181,33 @@ void deinitVulkan();
 void printExtensions();
 void printLayers();
 
+VkDescriptorSetLayout createSetLayout(const DescriptorSetLayout* descriptors, int32_t count);
+void destroyDescriptorSetLayouts(VkDescriptorSetLayout* layouts, int32_t amount);
+void destroyDescriptorPools(VkDescriptorPool* pools, int32_t poolCount);
 bool createDescriptorSet(VkDescriptorSetLayout layout, VkDescriptorSet* outSet);
+bool updateBindDescriptorSet(VkDescriptorSet descriptorSet,
+    const DescriptorSetLayout* descriptorSetLayout,
+    const DescriptorInfo* descriptorSetInfos, int descriptorSetInfoCount);
 
-VkImageView createImageView(VkImage image, VkFormat format);
+
 bool createImage(uint32_t width, uint32_t height,
     VkFormat imageFormat, VkImageUsageFlags usage, const char* imageName,
     Image& outImage);
-
 void destroyImage(Image& image);
+VkImageView createImageView(VkImage image, VkFormat format);
+void uploadToImage(u32 width, u32 height, u32 pixelSize,
+    Image& targetImage, void* data, u32 dataSize);
+
 bool createBuffer(size_t size,
     VkBufferUsageFlags usage,
     VkMemoryPropertyFlags memoryFlags,
     const char* bufferName,
     Buffer &outBuffer);
 void destroyBuffer(Buffer& buffer);
-
+UniformBuffer createUniformBuffer(size_t size);
 void uploadToGpuBuffer(Buffer &gpuBuffer, const void *data, size_t dstOffset, size_t size);
 void uploadToUniformBuffer(UniformBuffer &uniformBuffer, const void *data, size_t size);
 
-void uploadToImage(u32 width, u32 height, u32 pixelSize,
-    Image& targetImage, void* data, u32 dataSize);
-
-bool updateBindDescriptorSet(VkDescriptorSet descriptorSet,
-    const DescriptorSetLayout* descriptorSetLayout,
-    const DescriptorInfo* descriptorSetInfos, int descriptorSetInfoCount);
 
 
 
@@ -236,14 +239,11 @@ bool createShader(const char* code, int codeSize, VkShaderModule& outModule);
 bool createShader(const char* filename, VkShaderModule& outModule);
 
 
-VkDescriptorSetLayout createSetLayout(const DescriptorSetLayout* descriptors, int32_t count);
 
 VkPipelineLayout createPipelineLayout(const VkDescriptorSetLayout descriptorSetLayout);
 void destroyShaderModule(VkShaderModule* shaderModules, int32_t shaderModuleCount);
 void destroyPipelines(VkPipeline* pipelines, int32_t pipelineCount);
 void destroyPipelineLayouts(VkPipelineLayout* pipelineLayouts, int32_t pipelineLayoutCount);
-void destroyDescriptorSetLayouts(VkDescriptorSetLayout* layouts, int32_t amount);
-void destroyDescriptorPools(VkDescriptorPool* pools, int32_t poolCount);
 
 VkSampler createSampler(const VkSamplerCreateInfo& info);
 void destroySampler(VkSampler &sampler);
@@ -266,12 +266,9 @@ VkPipelineShaderStageCreateInfo createDefaultVertexInfo(VkShaderModule module);
 VkPipelineShaderStageCreateInfo createDefaultFragmentInfo(VkShaderModule module);
 VkPipelineShaderStageCreateInfo createDefaultComputeInfo(VkShaderModule module);
 
-UniformBuffer createUniformBuffer(size_t size);
-
 void beginRenderPipeline(RenderingAttachmentInfo *colorTargets, int32_t colorTargetCount,
     RenderingAttachmentInfo *depthTarget,
     VkPipelineLayout pipelineLayout, VkPipeline pipeline, VkDescriptorSet descriptorSet);
-
 void endRenderPipeline();
 
 void beginComputePipeline(VkPipelineLayout pipelineLayout, VkPipeline pipeline, VkDescriptorSet descriptorSet);
