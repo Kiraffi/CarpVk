@@ -24,7 +24,7 @@ include_directories(${Vulkan_INCLUDE_DIRS})
 add_library(carpvk OBJECT
         src/carpvk.cpp
         src/carpvk.h
-        src/common.h
+        src/carpvkassert.h
  "src/carpvkcommon.h")
 
 

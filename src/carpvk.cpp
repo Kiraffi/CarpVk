@@ -25,7 +25,7 @@
 #pragma clang diagnostic pop
 #endif
 
-#include "common.h"
+#include "carpvkassert.h"
 
 static const uint32_t cVulkanApiVersion = VK_API_VERSION_1_3;
 static const size_t cVulkanScratchBufferSize = 16 * 1024 * 1024;
@@ -138,7 +138,7 @@ struct SwapChainFormats
     VkColorSpaceKHR colorSpace;
 };
 
-static constexpr u32 sFormatFlagBits =
+static constexpr uint32_t sFormatFlagBits =
     VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
     VK_FORMAT_FEATURE_BLIT_SRC_BIT |
     VK_FORMAT_FEATURE_BLIT_DST_BIT |
@@ -274,13 +274,13 @@ static SwapChainSupportDetails sQuerySwapChainSupport(VkPhysicalDevice physicalD
 
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &details.capabilities);
 
-    u32 formatCount;
+    uint32_t formatCount;
     vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr);
     ASSERT(formatCount > 0 && formatCount < 256);
     details.formatCount = formatCount;
     vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, details.formats);
 
-    u32 presentModeCount;
+    uint32_t presentModeCount;
     vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, nullptr);
     ASSERT(presentModeCount > 0 && presentModeCount < 256);
     vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, details.presentModes);
@@ -292,7 +292,7 @@ static SwapChainSupportDetails sQuerySwapChainSupport(VkPhysicalDevice physicalD
 // Returns index that has all bits (graphics, compute and transfer) and supports present.
 static int sFindQueueFamilies(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
 {
-    u32 queueFamilyCount = 0;
+    uint32_t queueFamilyCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, nullptr);
     ASSERT(queueFamilyCount < 256);
     VkQueueFamilyProperties queueFamilies[256];
@@ -301,7 +301,7 @@ static int sFindQueueFamilies(VkPhysicalDevice physicalDevice, VkSurfaceKHR surf
     int index = -1;
     for (int i = 0; i < queueFamilyCount; ++i)
     {
-        u32 queueBits = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_TRANSFER_BIT | VK_QUEUE_COMPUTE_BIT;
+        uint32_t queueBits = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_TRANSFER_BIT | VK_QUEUE_COMPUTE_BIT;
 
         // make everything into same queue
         if ((queueFamilies[i].queueFlags & queueBits) != queueBits)
@@ -343,7 +343,7 @@ static VkSemaphore sCreateSemaphore()
 
 static VkCommandPool sCreateCommandPool()
 {
-    u32 familyIndex = sVkQueueIndex;
+    uint32_t familyIndex = sVkQueueIndex;
     VkCommandPoolCreateInfo poolCreateInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
     poolCreateInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT; // | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     //poolCreateInfo.flags = 0; //VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -357,7 +357,7 @@ static VkCommandPool sCreateCommandPool()
 
 
 
-static VkQueryPool sCreateQueryPool(u32 queryCount)
+static VkQueryPool sCreateQueryPool(uint32_t queryCount)
 {
     VkQueryPoolCreateInfo createInfo = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
 
@@ -475,7 +475,7 @@ static bool sCreatePhysicalDevice(bool useIntegratedGpu)
         : VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
     static const int DeviceMaxCount = 16;
     VkPhysicalDevice devices[DeviceMaxCount] = {};
-    u32 count = 0;
+    uint32_t count = 0;
 
     VK_CHECK_CALL(vkEnumeratePhysicalDevices(sVkInstance, &count, nullptr));
     ASSERT(count < DeviceMaxCount);
@@ -488,7 +488,7 @@ static bool sCreatePhysicalDevice(bool useIntegratedGpu)
     int secondaryQueueIndex = -1;
 
 
-    for(u32 i = 0; i < count; ++i)
+    for(uint32_t i = 0; i < count; ++i)
     {
         int requiredExtensionCount = ARRAYSIZES(sDeviceExtensions);
 
@@ -527,9 +527,9 @@ static bool sCreatePhysicalDevice(bool useIntegratedGpu)
             printf("No swapchain for: %s\n", prop.deviceName);
             continue;
         }
-        u32 formatIndex = ~0u;
+        uint32_t formatIndex = ~0u;
         
-        for (u32 j = 0; j < ARRAYSIZES(sDefaultPresent); ++j)
+        for (uint32_t j = 0; j < ARRAYSIZES(sDefaultPresent); ++j)
         {
             VkFormatProperties formatProperties;
             
@@ -550,7 +550,7 @@ static bool sCreatePhysicalDevice(bool useIntegratedGpu)
 
 
         {
-            u32 extensionCount;
+            uint32_t extensionCount;
             vkEnumerateDeviceExtensionProperties(
                 physicalDevice,
                 nullptr,
@@ -634,7 +634,7 @@ bool sCreateDeviceWithQueues()
     sVkSwapchainFormats.colorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
     sVkSwapchainFormats.defaultColorFormat = VK_FORMAT_UNDEFINED;
 
-    for(u32 i = 0; i < swapChainSupport.formatCount && sVkSwapchainFormats.presentColorFormat == VK_FORMAT_UNDEFINED; ++i)
+    for(uint32_t i = 0; i < swapChainSupport.formatCount && sVkSwapchainFormats.presentColorFormat == VK_FORMAT_UNDEFINED; ++i)
     {
         for (const auto& format : sDefaultPresent)
         {
@@ -676,11 +676,7 @@ FoundSwapChain:
         }
     }
 
-    ASSERT(sVkSwapchainFormats.defaultColorFormat != VK_FORMAT_UNDEFINED);
-    if(sVkSwapchainFormats.defaultColorFormat == VK_FORMAT_UNDEFINED)
-    {
-        return false;
-    }
+    ASSERT_RETURN_FALSE(sVkSwapchainFormats.defaultColorFormat != VK_FORMAT_UNDEFINED);
 
     float queuePriority = 1.0f;
     VkDeviceQueueCreateInfo queueCreateInfo = {};
@@ -749,17 +745,11 @@ FoundSwapChain:
     VK_CHECK_CALL(vkCreateDevice(sVkPhysicalDevice, &createInfo,
         nullptr, &sVkDevice));
 
-    ASSERT(sVkDevice);
-
-    if (!sVkDevice)
-        return false;
+    ASSERT_RETURN_FALSE(sVkDevice);
 
     vkGetDeviceQueue(sVkDevice, 0, sVkQueueIndex, &sVkQueue);
-    ASSERT(sVkQueue);
+    ASSERT_RETURN_FALSE(sVkQueue);
 
-
-    if (!sVkDevice || !sVkQueue)
-        return false;
     // Init VMA
     {
         VmaVulkanFunctions vulkanFunctions = {};
@@ -831,8 +821,8 @@ static bool sCreateSwapchain(VSyncType vsyncMode, int width, int height)
         VkExtent2D extent = swapChainSupport.capabilities.currentExtent;
         if (swapChainSupport.capabilities.currentExtent.width == UINT32_MAX)
         {
-            extent.width = u32(width);
-            extent.height = u32(height);
+            extent.width = uint32_t(width);
+            extent.height = uint32_t(height);
 
 
             extent.width = MAX_VALUE(swapChainSupport.capabilities.minImageExtent.width,
@@ -841,7 +831,7 @@ static bool sCreateSwapchain(VSyncType vsyncMode, int width, int height)
                 MIN_VALUE(swapChainSupport.capabilities.maxImageExtent.height, extent.height));
         }
 
-        u32 imageCount = swapChainSupport.capabilities.minImageCount + 1;
+        uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
         if (swapChainSupport.capabilities.maxImageCount > 0
             && imageCount > swapChainSupport.capabilities.maxImageCount)
         {
@@ -897,7 +887,7 @@ static bool sCreateSwapchain(VSyncType vsyncMode, int width, int height)
 
 
 
-    u32 swapchainCount = 0;
+    uint32_t swapchainCount = 0;
     VK_CHECK_CALL(vkGetSwapchainImagesKHR(sVkDevice, sVkSwapchain, &swapchainCount, nullptr));
     ASSERT(swapchainCount <= 32);
     VK_CHECK_CALL(vkGetSwapchainImagesKHR(sVkDevice, sVkSwapchain, &swapchainCount, sVkSwapchainImages));
@@ -1128,7 +1118,7 @@ bool initVulkan(const VulkanInstanceParams &params)
     }
 
 
-    for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+    for(uint32_t i = 0; i < CarpVk::FramesInFlight; ++i)
     {
         sVkQueryPools[i] = sCreateQueryPool(CarpVk::QueryCount);
         ASSERT(sVkQueryPools[i]);
@@ -1140,7 +1130,7 @@ bool initVulkan(const VulkanInstanceParams &params)
     }
 
 
-    for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+    for(uint32_t i = 0; i < CarpVk::FramesInFlight; ++i)
     {
         sVkAcquireSemaphores[i] = sCreateSemaphore();
         ASSERT(sVkAcquireSemaphores[i]);
@@ -1166,7 +1156,7 @@ bool initVulkan(const VulkanInstanceParams &params)
             return false;
         }
     }
-    for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+    for(uint32_t i = 0; i < CarpVk::FramesInFlight; ++i)
     {
         sVkCommandPools[i] = sCreateCommandPool();
         ASSERT(sVkCommandPools[i]);
@@ -1183,7 +1173,7 @@ bool initVulkan(const VulkanInstanceParams &params)
 
         {
             VK_CHECK_CALL(vkAllocateCommandBuffers(sVkDevice, &allocateInfo, &sVkCommandBuffers[i]));
-            //for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+            //for(uint32_t i = 0; i < CarpVk::FramesInFlight; ++i)
             {
                 if(!sVkCommandBuffers[i])
                 {
@@ -1244,7 +1234,7 @@ void deinitVulkan()
             sVkInstanceBuilder.vulkanInstanceParams.destroyBuffersFn(sVkInstanceBuilder.vulkanInstanceParams.userData);
         }
 
-        for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+        for(uint32_t i = 0; i < CarpVk::FramesInFlight; ++i)
         {
             if(sVkCommandPools[i])
             {
@@ -1256,14 +1246,14 @@ void deinitVulkan()
 
         destroyBuffer(sVkUniformBuffer);
 
-        for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+        for(uint32_t i = 0; i < CarpVk::FramesInFlight; ++i)
         {
             destroyBuffer(sVkScratchBuffer[i]);
             vkDestroyQueryPool(sVkDevice, sVkQueryPools[i], nullptr);
         }
 
 
-        for(u32 i = 0; i < CarpVk::FramesInFlight; ++i)
+        for(uint32_t i = 0; i < CarpVk::FramesInFlight; ++i)
         {
             vkDestroyFence(sVkDevice, sVkFences[i], nullptr);
             vkDestroySemaphore(sVkDevice, sVkAcquireSemaphores[i], nullptr);
@@ -1408,15 +1398,10 @@ bool createImage(uint32_t width, uint32_t height,
     VK_CHECK_CALL(vmaCreateImage(sVkAllocator,
         &createInfo, &allocInfo, &outImage.image, &outImage.allocation, nullptr));
 
-    ASSERT(outImage.image && outImage.allocation);
-
-    if (!outImage.image || !outImage.allocation)
-        return false;
+    ASSERT_RETURN_FALSE(outImage.image && outImage.allocation);
 
     outImage.view = createImageView(outImage.image, imageFormat);
-    ASSERT(outImage.view);
-    if (!outImage.view)
-        return false;
+    ASSERT_RETURN_FALSE(outImage.view);
 
     sSetObjectName((uint64_t)outImage.image, VK_DEBUG_REPORT_OBJECT_TYPE_IMAGE_EXT, imageName);
     outImage.imageName = imageName;
@@ -1500,8 +1485,8 @@ void uploadToUniformBuffer(UniformBuffer &uniformBuffer, const void *data, size_
     sUploadScratchBufferToGpuBuffer(sVkUniformBuffer, region);
 }
 
-void uploadToImage(u32 width, u32 height, u32 pixelSize,
-    Image& targetImage, void* data, u32 dataSize)
+void uploadToImage(uint32_t width, uint32_t height, uint32_t pixelSize,
+    Image& targetImage, void* data, uint32_t dataSize)
 {
     VkCommandBuffer commandBuffer = getVkCommandBuffer();
     int64_t frameIndex = getFrameIndexWrapped();
@@ -1685,10 +1670,7 @@ bool createShader(const char* code, int codeSize, VkShaderModule& outModule)
     createInfo.codeSize = codeSize;
     createInfo.pCode = (uint32_t*)code;
     VK_CHECK_CALL(vkCreateShaderModule(sVkDevice, &createInfo, nullptr, &outModule));
-    ASSERT(outModule);
-    if (!outModule)
-        return false;
-
+    ASSERT_RETURN_FALSE(outModule);
     return true;
 }
 
@@ -1957,25 +1939,19 @@ bool updateBindDescriptorSet(VkDescriptorSet descriptorSet,
     const DescriptorInfo* descriptorSetInfos, int descriptorSetCount)
 {
     constexpr static int MAX_DESCRIPTOR_COUNT = 32;
-    ASSERT_RETURN_IF_FALSE(descriptorSetCount <= MAX_DESCRIPTOR_COUNT);
-    ASSERT_RETURN_IF_FALSE(descriptorSetCount > 0);
-    ASSERT_RETURN_IF_FALSE(descriptorSetLayout);
-    ASSERT_RETURN_IF_FALSE(descriptorSet);
-    ASSERT_RETURN_IF_FALSE(descriptorSetInfos);
+    ASSERT_RETURN_FALSE(descriptorSetCount <= MAX_DESCRIPTOR_COUNT);
+    ASSERT_RETURN_FALSE(descriptorSetCount > 0);
+    ASSERT_RETURN_FALSE(descriptorSetLayout);
+    ASSERT_RETURN_FALSE(descriptorSet);
+    ASSERT_RETURN_FALSE(descriptorSetInfos);
 
-    if(descriptorSetCount == 0)
-    {
-        ASSERT(false && "Descriptorbinds failed");
-        printf("Failed to set descriptor binds!\n");
-        return false;
-    }
     VkWriteDescriptorSet writeDescriptorSets[MAX_DESCRIPTOR_COUNT];
     VkDescriptorBufferInfo bufferInfos[MAX_DESCRIPTOR_COUNT];
     VkDescriptorImageInfo imageInfos[MAX_DESCRIPTOR_COUNT];
 
-    u32 writeIndex = 0u;
-    u32 bufferCount = 0u;
-    u32 imageCount = 0u;
+    uint32_t writeIndex = 0u;
+    uint32_t bufferCount = 0u;
+    uint32_t imageCount = 0u;
     for(int i = 0; i < descriptorSetCount; ++i)
     {
         if(descriptorSetInfos[i].type == DescriptorInfo::DescriptorType::BUFFER)
@@ -2001,9 +1977,9 @@ bool updateBindDescriptorSet(VkDescriptorSet descriptorSet,
         else if(descriptorSetInfos[i].type == DescriptorInfo::DescriptorType::IMAGE)
         {
             const VkDescriptorImageInfo &imageInfo = descriptorSetInfos[i].imageInfo;
-            ASSERT_RETURN_IF_FALSE(imageInfo.sampler || descriptorSetLayout[i].descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-            ASSERT_RETURN_IF_FALSE(imageInfo.imageView);
-            ASSERT_RETURN_IF_FALSE(imageInfo.imageLayout);
+            ASSERT_RETURN_FALSE(imageInfo.sampler || descriptorSetLayout[i].descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+            ASSERT_RETURN_FALSE(imageInfo.imageView);
+            ASSERT_RETURN_FALSE(imageInfo.imageLayout);
 
             imageInfos[imageCount] = imageInfo;
 
@@ -2031,7 +2007,7 @@ bool updateBindDescriptorSet(VkDescriptorSet descriptorSet,
     if(writeIndex > 0)
     {
         vkUpdateDescriptorSets(sVkDevice,
-            u32(writeIndex), writeDescriptorSets,
+            uint32_t(writeIndex), writeDescriptorSets,
             0, nullptr);
     }
 
@@ -2431,7 +2407,7 @@ void beginRenderPipeline(RenderingAttachmentInfo *colorTargets, int32_t colorTar
 
     VkRenderingInfo renderingInfo{};
     renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    renderingInfo.renderArea = { 0, 0, u32(width), u32(height) };
+    renderingInfo.renderArea = { 0, 0, uint32_t(width), uint32_t(height) };
     renderingInfo.layerCount = 1;
     renderingInfo.colorAttachmentCount = colorTargetCount;
     renderingInfo.pColorAttachments = colorTargetCount > 0 ? colorAttachments : nullptr;
@@ -2445,7 +2421,7 @@ void beginRenderPipeline(RenderingAttachmentInfo *colorTargets, int32_t colorTar
         0, NULL);
 
     VkViewport viewport = { 0.0f, float(height), float(width), -float(height), 0.0f, 1.0f };
-    VkRect2D scissors = { { 0, 0 }, { u32(width), u32(height) } };
+    VkRect2D scissors = { { 0, 0 }, { uint32_t(width), uint32_t(height) } };
 
     vkCmdSetScissor(commandBuffer, 0, 1, &scissors);
     vkCmdSetViewport(commandBuffer, 0, 1, &viewport);

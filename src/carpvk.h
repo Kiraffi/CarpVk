@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-#include "common.h"
+#include "carpvkassert.h"
 #include "carpvkcommon.h"
 
 #define VK_CHECK_CALL(call) do { \
@@ -190,8 +190,8 @@ bool createImage(uint32_t width, uint32_t height,
     Image& outImage);
 void destroyImage(Image& image);
 VkImageView createImageView(VkImage image, VkFormat format);
-void uploadToImage(u32 width, u32 height, u32 pixelSize,
-    Image& targetImage, void* data, u32 dataSize);
+void uploadToImage(uint32_t width, uint32_t height, uint32_t pixelSize,
+    Image& targetImage, void* data, uint32_t dataSize);
 
 bool createBuffer(size_t size,
     VkBufferUsageFlags usage,
