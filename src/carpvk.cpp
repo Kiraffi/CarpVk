@@ -162,7 +162,7 @@ static const VkValidationFeatureEnableEXT sEnabledValidationFeatures[] =
 {
     //VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT,
     //VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT,
-    VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT,
+    //VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT,
     //VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT,
     VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT,
 };
@@ -528,11 +528,11 @@ static bool sCreatePhysicalDevice(bool useIntegratedGpu)
             continue;
         }
         uint32_t formatIndex = ~0u;
-        
+
         for (uint32_t j = 0; j < ARRAYSIZES(sDefaultPresent); ++j)
         {
             VkFormatProperties formatProperties;
-            
+
             vkGetPhysicalDeviceFormatProperties(physicalDevice, sDefaultPresent[j].color, &formatProperties);
             if(((formatProperties.optimalTilingFeatures) & sFormatFlagBits) == sFormatFlagBits)
             {
@@ -540,7 +540,7 @@ static bool sCreatePhysicalDevice(bool useIntegratedGpu)
                 break;
             }
         }
-        
+
         if(formatIndex == ~0u)
         {
             printf("No render target format found: %s\n", prop.deviceName);
@@ -1260,15 +1260,15 @@ void deinitVulkan()
             vkDestroySemaphore(sVkDevice, sVkReleaseSemaphores[i], nullptr);
         }
 
-        if(sVkAllocator)
-        {
-            vmaDestroyAllocator(sVkAllocator);
-            sVkAllocator = nullptr;
-        }
         if(sVkDescriptorPool)
         {
             vkDestroyDescriptorPool(sVkDevice, sVkDescriptorPool, nullptr);
             sVkDescriptorPool = {};
+        }
+        if(sVkAllocator)
+        {
+            vmaDestroyAllocator(sVkAllocator);
+            sVkAllocator = nullptr;
         }
 
 
@@ -1343,7 +1343,7 @@ bool createDescriptorSet(VkDescriptorSetLayout layout, VkDescriptorSet* outSet)
 VkImageView createImageView(VkImage image, VkFormat format)
 {
     VkImageAspectFlags aspectMask = sGetAspectMaskFromFormat(format);
-    
+
     VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
     createInfo.image = image;
     createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
@@ -2169,7 +2169,7 @@ bool presentImage(Image& imageToPresent)
         dep2.pImageMemoryBarriers = &presentBarrier;
         vkCmdPipelineBarrier2(commandBuffer, &dep2);
     }
-    
+
     VK_CHECK_CALL(vkEndCommandBuffer(commandBuffer));
 
 
@@ -2187,7 +2187,7 @@ bool presentImage(Image& imageToPresent)
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
             .commandBuffer = commandBuffer,
         };
-        
+
 
         VkSemaphoreSubmitInfo acquireCompleteInfo = {
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
